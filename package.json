@@ -4,5 +4,5 @@
   "author": "Ondrej Rafaj", "main": "app/main.cjs",
   "scripts": {"start": "electron .", "test": "node --test tests/*.test.cjs", "test:flows": "playwright test", "pack": "electron-builder --dir", "dist": "electron-builder"},
   "devDependencies": {"electron": "44.5.1", "electron-builder": "26.15.3", "@playwright/test": "1.63.0"},
-  "build": {"appId": "com.rafiki.sysmon", "productName": "SysMon", "files": ["app/**/*", "package.json"], "win": {"target": "portable"}, "mac": {"target": "dmg", "category": "public.app-category.utilities"}, "linux": {"target": "AppImage", "category": "Utility"}}
+  "build": {"appId": "com.rafiki.sysmon", "productName": "SysMon", "files": ["app/**/*", "daemon/*.cjs", "package.json"], "win": {"target": "portable"}, "mac": {"target": ["dmg", "dir"], "category": "public.app-category.utilities"}, "linux": {"target": ["AppImage", "dir"], "category": "Utility"}}
 }

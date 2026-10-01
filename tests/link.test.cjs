@@ -5,7 +5,7 @@ const http = require('node:http');
 const net = require('node:net');
 const ws = require('../daemon/ws.cjs');
 const { HostLink, probePort, DAEMON_PORT } = require('../app/link.cjs');
-const { detectLocalId } = require('../app/monitor.cjs');
+const { detectLocalId, remoteCommand } = require('../app/monitor.cjs');
 
 test('detectLocalId selects the right host on each platform', () => {
   assert.strictEqual(detectLocalId({ platform: 'win32', hostname: 'DESKTOP-XYZ' }), 'minis');
@@ -13,6 +13,12 @@ test('detectLocalId selects the right host on each platform', () => {
   assert.strictEqual(detectLocalId({ platform: 'linux', hostname: 'umac' }), 'umac');
   assert.strictEqual(detectLocalId({ platform: 'linux', hostname: 'minis' }), 'minis'); // hostname wins
   assert.strictEqual(detectLocalId({ platform: 'freebsd', hostname: 'elsewhere' }), null);
+});
+
+test('remoteCommand is shell-appropriate per host OS', () => {
+  assert.strictEqual(remoteCommand({ os: 'WINDOWS' }, 'machine'), 'node - machine'); // PowerShell, system Node
+  assert.match(remoteCommand({ os: 'MAC' }, 'accounts'), /^export PATH=.*node - accounts$/);
+  assert.match(remoteCommand({ os: 'LINUX' }, 'accounts'), /^export PATH=.*node - accounts$/);
 });
 
 test('ws server rejects browser Origin upgrades', async () => {
