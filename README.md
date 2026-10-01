@@ -24,11 +24,13 @@ failing-CI panel, system tray.
   `textContent`/`createElement` only; remote strings are never treated as
   markup.
 
-Machine telemetry for the two non-local hosts comes from their daemons,
-reached through SSH tunnels (local ports 17378 Minis / 17379 dictator /
-17380 umac → remote 127.0.0.1:7737). No unauthenticated LAN port is ever
-opened; the daemon refuses non-loopback binds even if the host env var is
-overridden and rejects WebSocket upgrades carrying a browser `Origin`.
+Machine telemetry for each non-local host comes from its daemon when one is
+available, reached through SSH tunnels (local ports 17378 Minis / 17379
+dictator / 17380 umac → remote 127.0.0.1:7737); otherwise the app falls back
+to running the collector over SSH stdin. Minis has no daemon, so it always
+uses the SSH collector. No unauthenticated LAN port is ever opened; the
+daemon refuses non-loopback binds even if the host env var is overridden and
+rejects WebSocket upgrades carrying a browser `Origin`.
 
 ## Hosts
 
@@ -56,8 +58,9 @@ dictator, Grok (website subscription).
   app never rotates shared tokens. Expired credentials surface as an explicit
   **auth** state.
 - **Kimi** — `GET https://api.kimi.com/coding/v1/usages` (the endpoint the
-  public Kimi CLI uses). Token order: native CLI OAuth credentials, then the
-  local Kimix API key (`~/.kimix/token`), then `KIMI_API_KEY`. The detailed
+  public Kimi CLI uses). Token order: valid native CLI OAuth credentials,
+  then `KIMI_API_KEY`, then the local Kimix API key (`~/.kimix/token`), then
+  a matching provider `api_key` in the native CLI config. The detailed
   `limits`/`usage` shapes are authoritative; the legacy `usages` ratios are a
   compatibility mirror and can disagree — on conflict the highest valid
   utilization wins, keeping that window's own reset. Malformed values are
@@ -105,7 +108,9 @@ npm run dist          # Windows portable, macOS dmg+dir, Linux AppImage+dir
 
 Native packaging verified: macOS arm64 dmg/dir and Linux x64 AppImage/dir
 build unsigned (no signing certificate available in this environment);
-Windows portable build passes on CI. `SYSMON_TEST=1` (with `SYSMON_USERDATA`
+Windows x64 directory packaging passes CI; the installed build was verified
+fullscreen on Minis. The portable target is configured but was not validated.
+`SYSMON_TEST=1` (with `SYSMON_USERDATA`
 and optional `SYSMON_FIXTURE`) disables real polling, login windows and
 autostart so tests never touch user settings or credentials.
 

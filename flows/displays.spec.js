@@ -5,8 +5,8 @@
 // physical size assertions are intentionally omitted: synthetic geometry never
 // matches a real OS window manager (macOS clamps to workArea minus menu
 // bar/dock, Windows frameless windows may exceed workArea). chooseDisplay
-// preference order is covered by unit tests in settings.test.cjs, and root's
-// live native test validates physical placement at 0,-720 1920x720.
+// preference order is covered by unit tests in settings.test.cjs. Live native
+// validation checks physical placement at 0,-720 1920x720.
 const { test, expect } = require('@playwright/test');
 const { launch, baseFixture } = require('./helpers.cjs');
 
