@@ -134,6 +134,15 @@ class Monitor extends EventEmitter {
     this.publish();
     this.later(() => this.accounts(host), 5000);
   }
+  // Re-read one host's accounts now (e.g. right after a CLI sign-in finished)
+  // instead of waiting for the next scheduled poll.
+  refreshAccounts(hostId) {
+    if (this.stopped || !this.started) return;
+    const host = hosts.find(h => h.id === hostId);
+    if (!host || host.id === 'umac') return; // umac has no account cards
+    this.accountNext[host.id] = 0;
+    this.accounts(host);
+  }
   async ci() {
     if (this.stopped) return;
     try {
@@ -160,6 +169,7 @@ class Monitor extends EventEmitter {
     this.publish();
   }
   start() {
+    this.started = true;
     hosts.forEach(h => this.startHost(h));
     hosts.filter(h => h.id !== 'umac').forEach(h => this.accounts(h)); // Ubuntu shares a subscription; no duplicate account cards.
     this.ci();

@@ -86,6 +86,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 .gauge .gv .n { font-size: clamp(14px, 1.3vw + 4px, 24px); font-weight: 700; }
 .gauge .gv .u { font-size: clamp(8px, .5vw + 4px, 11px); letter-spacing: .1em; color: var(--dim); }
 .gauge-meta { font-size: clamp(9px, .6vw + 4px, 12px); color: var(--dim); white-space: nowrap; }
+.mrow .mstat, .nrow .mstat { justify-self: center; text-align: center; }
 .mstat .lbl { font-size: clamp(8px, .55vw + 4px, 11px); letter-spacing: .1em; color: var(--dim); }
 .mstat .n { font-size: clamp(18px, 1.8vw + 6px, 34px); font-weight: 700; line-height: 1.05; }
 .mstat .n .unit { font-size: .42em; color: var(--dim); }
@@ -112,7 +113,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 
 /* ---------- layout 1b: bar columns ---------- */
 .lay-bars { grid-template-columns: minmax(0, 1fr) clamp(240px, 20%, 380px); grid-template-rows: minmax(0, 1fr); }
-.bars-left { display: grid; grid-template-rows: minmax(0, 1fr) auto; border-right: 1px solid var(--line); min-height: 0; }
+.bars-left { display: grid; grid-template-rows: minmax(0, 5fr) minmax(0, 6fr); border-right: 1px solid var(--line); min-height: 0; }
 .bars-machines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; }
 .bcol {
   padding: clamp(8px, 1.2vw, 24px) clamp(10px, 1.4vw, 28px);
@@ -130,13 +131,14 @@ button.link:hover { background: rgba(232,168,56,.12); }
 .bar > div { height: 100%; transition: width .8s; }
 .bcol .md { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(8px, 1vw, 16px); border-top: 1px solid var(--line); padding-top: clamp(6px, 1.2vh, 18px); }
 .bcol .top-proc { margin-top: auto; display: flex; justify-content: space-between; font-size: clamp(8px, .55vw + 4px, 11px); color: var(--mute); }
-.bars-accounts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.bars-accounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); min-height: 0; }
 .bacct {
   padding: clamp(6px, .9vw, 16px) clamp(8px, 1vw, 20px);
   border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: clamp(4px, .8vh, 10px); min-width: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: clamp(3px, .7vh, 8px); min-width: 0; overflow: hidden;
 }
-.bacct:last-child { border-right: none; }
+.bacct:nth-child(3n) { border-right: none; }
+.bacct:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
 .bacct .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .bacct .vendor { font-size: clamp(8px, .55vw + 4px, 12px); letter-spacing: .1em; color: var(--dim); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bacct .win { font-size: clamp(8px, .5vw + 4px, 11px); color: var(--mute); white-space: nowrap; }
@@ -152,7 +154,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 .num-machines { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); border-right: 1px solid var(--line); }
 .nrow {
   display: grid; grid-template-columns: minmax(110px, .8fr) minmax(160px, 1.4fr) minmax(90px, .7fr) minmax(90px, .7fr);
-  align-items: center; gap: clamp(8px, 1vw, 20px); padding: 0 clamp(10px, 1.4vw, 28px);
+  align-items: center; gap: clamp(14px, 1.6vw, 36px); padding: 0 clamp(10px, 1.4vw, 28px);
   border-bottom: 1px solid var(--line); min-height: 0;
 }
 .nrow:last-child { border-bottom: none; }
