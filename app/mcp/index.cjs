@@ -37,7 +37,6 @@ async function start({ monitor, userData, log = () => {}, port = DEFAULT_PORT, h
   if (mdns && server.listening()) {
     advertiser = new MdnsAdvertiser({ log, bonjourFactory });
     advertiser.start({ port: server.port() });
-    if (!advertiser.active()) advertiser = null;
   }
 
   const endpoint = () => {
@@ -49,7 +48,14 @@ async function start({ monitor, userData, log = () => {}, port = DEFAULT_PORT, h
   return {
     server,
     endpoint,
-    status: () => ({ ...server.status(), endpoint: endpoint(), mdns: !!advertiser }),
+    // Truthful at all times: a publication that fails asynchronously flips
+    // mdns to false and surfaces the sanitized reason.
+    status: () => ({
+      ...server.status(),
+      endpoint: endpoint(),
+      mdns: advertiser ? advertiser.active() : false,
+      ...(advertiser?.error ? { mdnsError: advertiser.error } : {}),
+    }),
     stop: async () => {
       if (advertiser) await advertiser.stop();
       advertiser = null;

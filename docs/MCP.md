@@ -69,10 +69,12 @@ additionally strips any sensitively-named key before anything leaves the app.
 
 The app advertises via Bonjour/DNS-SD (`bonjour-service`) on all interfaces:
 
-- `_sysmon._tcp` (instance `SysMon Monitor`) — primary service
-- `_mcp._tcp` (instance `SysMon MCP`)
+- `_sysmon._tcp` (instance `SysMon Monitor (<hostname>)`) — primary service
+- `_mcp._tcp` (instance `SysMon MCP (<hostname>)`)
 
-Both point at the actual bound port with TXT records `path=/mcp`,
+Instance names carry the machine hostname because SysMon runs on several
+machines of the same LAN — static names would collide. Both point at the
+actual bound port with TXT records `path=/mcp`,
 `transport=streamable-http`, `version=<app version>`, `auth=bearer` — endpoint
 metadata only, never stats or the token. Advertisement starts only after the
 listener is verified up, and `unpublishAll` on quit sends mDNS goodbye

@@ -257,6 +257,17 @@ test('security: missing/bad token rejected 401, browser Origin rejected 403, oth
     assert.strictEqual(await post({ authorization: 'Bearer wrong-token' }), 401, 'bad token must be rejected');
     assert.strictEqual(await post({ authorization: `Bearer ${fx.token}` }), 200, 'valid token accepted');
     assert.strictEqual(await post({ authorization: `Bearer ${fx.token}`, origin: 'https://evil.example' }), 403, 'browser Origin must be rejected even with a valid token');
+    // Origin is rejected by presence, including an empty value (undici drops
+    // empty headers, so go through node:http for this one).
+    const emptyOrigin = await new Promise((resolve, reject) => {
+      const req = require('node:http').request(fx.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${fx.token}`, Origin: '' },
+      }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+      req.on('error', reject);
+      req.end(JSON.stringify(init));
+    });
+    assert.strictEqual(emptyOrigin, 403, 'empty Origin header must still be rejected');
     const wrongPath = await fetch(`http://127.0.0.1:${fx.server.port()}/other`, { headers: { authorization: `Bearer ${fx.token}` } });
     assert.strictEqual(wrongPath.status, 404);
     await wrongPath.text();
@@ -277,12 +288,32 @@ test('bounded sessions: beyond the cap, initialize is refused', async () => {
     assert.strictEqual(fx.server.sessions.size, 1);
     await assert.rejects(connectClient(fx.url, fx.token), /Too many sessions|503|Error POSTing/);
     assert.strictEqual(fx.server.sessions.size, 1);
+    assert.strictEqual(fx.server.pending, 0, 'failed initialization releases its slot');
     // idle reaper frees capacity without client disconnects
     for (const s of fx.server.sessions.values()) s.lastTouched = 0;
     fx.server.reap();
     assert.strictEqual(fx.server.sessions.size, 0);
   } finally {
     await client.close();
+    await fx.server.stop();
+  }
+});
+
+test('session cap race: concurrent initializations cannot all pass the size check', async () => {
+  const fx = await startFixture(fixtureMonitor(), { maxSessions: 1 });
+  try {
+    const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'x', version: '1' } } };
+    const post = () => fetch(fx.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${fx.token}` },
+      body: JSON.stringify(init),
+    }).then(async (r) => { await r.text(); return r.status; });
+    const statuses = await Promise.all([post(), post(), post(), post()]);
+    assert.deepStrictEqual(statuses.filter((s) => s === 200).length, 1, 'exactly one initialization wins the slot');
+    assert.deepStrictEqual(statuses.filter((s) => s === 503).length, 3);
+    assert.strictEqual(fx.server.sessions.size, 1);
+    assert.strictEqual(fx.server.pending, 0, 'all slots released after requests finish');
+  } finally {
     await fx.server.stop();
   }
 });
@@ -336,6 +367,7 @@ test('mDNS: advertises _sysmon._tcp and _mcp._tcp with endpoint metadata only, g
     const types = published.map((p) => p.type).sort();
     assert.deepStrictEqual(types, ['mcp', 'sysmon']);
     for (const p of published) {
+      assert.ok(p.name.includes(os.hostname()), 'instance name carries the hostname: ' + p.name);
       assert.strictEqual(p.port, handle.server.port(), 'advertises the actual bound port');
       assert.strictEqual(p.protocol, 'tcp');
       assert.strictEqual(p.txt.path, '/mcp');
@@ -354,6 +386,51 @@ test('mDNS: advertises _sysmon._tcp and _mcp._tcp with endpoint metadata only, g
   assert.ok(unpublished, 'stop unpublishes (sends mDNS goodbyes)');
   assert.ok(destroyed);
   assert.strictEqual(handle.status().listening, false);
+});
+
+test('mDNS instance names are unique per machine to avoid LAN collisions', () => {
+  const a = serviceConfigs(7738, 'dictator');
+  const b = serviceConfigs(7738, 'minis');
+  assert.ok(a.every((c) => c.name.includes('dictator')));
+  assert.ok(b.every((c) => c.name.includes('minis')));
+  const names = new Set([...a, ...b].map((c) => `${c.type}/${c.name}`));
+  assert.strictEqual(names.size, 4, 'no shared instance name across machines');
+});
+
+test('mDNS publication failure is reported truthfully and partial publication is torn down', async () => {
+  const handlers = [];
+  let unpublished = false;
+  let destroyed = false;
+  const fakeBonjour = () => ({
+    publish: () => ({ on: (ev, cb) => { if (ev === 'error') handlers.push(cb); } }),
+    unpublishAll: (cb) => { unpublished = true; cb(); },
+    destroy: (cb) => { destroyed = true; cb(); },
+  });
+  const logs = [];
+  const handle = await mcpLifecycle.start({ monitor: fixtureMonitor(), userData: tmpdir(), log: (m) => logs.push(m), port: 0, host: '127.0.0.1', bonjourFactory: fakeBonjour });
+  try {
+    assert.strictEqual(handle.status().mdns, true, 'advertising before the failure');
+    assert.strictEqual(handlers.length, 2, 'error handler attached to every published service');
+    handlers[0](new Error('probe conflict')); // asynchronous publication failure
+    await new Promise((r) => setImmediate(r));
+    const status = handle.status();
+    assert.strictEqual(status.mdns, false, 'status reports the failure honestly');
+    assert.match(status.mdnsError, /probe conflict/);
+    assert.ok(unpublished, 'partial publication is unpublished');
+    assert.ok(destroyed, 'bonjour instance destroyed');
+    assert.ok(logs.some((l) => l.includes('mDNS advertisement unavailable')), 'failure is logged (sanitized)');
+  } finally {
+    await handle.stop();
+  }
+});
+
+test('mDNS synchronous publish throw also fails truthfully', () => {
+  const logs = [];
+  const advertiser = new MdnsAdvertiser({ log: (m) => logs.push(m), bonjourFactory: () => ({ publish: () => { throw new Error('no multicast'); } }) });
+  advertiser.start({ port: 7738 });
+  assert.strictEqual(advertiser.active(), false);
+  assert.strictEqual(advertiser.error, 'no multicast');
+  assert.ok(logs.some((l) => l.includes('no multicast')));
 });
 
 test('mDNS service types render as _sysmon._tcp / _mcp._tcp per DNS-SD', () => {

@@ -48,6 +48,7 @@ class McpHttpServer {
     this.maxSessions = maxSessions;
     this.sessionIdleMs = sessionIdleMs;
     this.sessions = new Map(); // sessionId -> { transport, server, lastTouched }
+    this.pending = 0; // in-flight initializations holding a not-yet-registered slot
     this.http = null;
     this.error = null;
     this.reaper = null;
@@ -67,7 +68,8 @@ class McpHttpServer {
     if (url.pathname !== MCP_PATH) return rpcError(res, 404, -32600, 'Not found');
     // Origin validation (MCP spec, DNS-rebinding protection): browsers always
     // send Origin on cross-origin POSTs; legitimate MCP clients do not.
-    if (req.headers.origin) return rpcError(res, 403, -32001, 'Browser origins are not allowed');
+    // Rejected by presence — an empty Origin header is still a browser signal.
+    if (req.headers.origin !== undefined) return rpcError(res, 403, -32001, 'Browser origins are not allowed');
     if (!this.authorized(req)) return rpcError(res, 401, -32000, 'Unauthorized', { 'WWW-Authenticate': 'Bearer realm="sysmon-mcp"' });
     if (!['POST', 'GET', 'DELETE'].includes(req.method)) return rpcError(res, 405, -32600, 'Method not allowed', { Allow: 'POST, GET, DELETE' });
 
@@ -88,23 +90,40 @@ class McpHttpServer {
       transport = existing.transport;
     } else {
       if (req.method !== 'POST' || !isInitializeRequest(body)) return rpcError(res, 400, -32600, 'Expected an initialize request for a new session');
-      if (this.sessions.size >= this.maxSessions) return rpcError(res, 503, -32001, 'Too many sessions');
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        onsessioninitialized: (id) => {
-          this.sessions.set(id, { transport, server, lastTouched: Date.now() });
-        },
-        onsessionclosed: (id) => { this.sessions.delete(id); },
-      });
-      const server = createMcpServer(this.monitor);
-      transport.onclose = () => {
-        for (const [id, s] of this.sessions) if (s.transport === transport) this.sessions.delete(id);
-      };
+      // Count in-flight initializations against the cap: concurrent
+      // initialize requests must not all pass the sessions.size check before
+      // their async SDK connect completes. The slot is released when the
+      // request finishes or fails, by which point sessions.size accounts
+      // for a successful initialization.
+      if (this.sessions.size + this.pending >= this.maxSessions) return rpcError(res, 503, -32001, 'Too many sessions');
+      this.pending++;
       try {
-        await server.connect(transport);
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => crypto.randomUUID(),
+          onsessioninitialized: (id) => {
+            this.sessions.set(id, { transport, server, lastTouched: Date.now() });
+          },
+          onsessionclosed: (id) => { this.sessions.delete(id); },
+        });
+        const server = createMcpServer(this.monitor);
+        transport.onclose = () => {
+          for (const [id, s] of this.sessions) if (s.transport === transport) this.sessions.delete(id);
+        };
+        try {
+          await server.connect(transport);
+        } catch (e) {
+          this.log(`MCP session setup failed: ${e.message}`);
+          return rpcError(res, 500, -32603, 'Internal error');
+        }
+        await transport.handleRequest(req, res, body);
+        return;
       } catch (e) {
-        this.log(`MCP session setup failed: ${e.message}`);
-        return rpcError(res, 500, -32603, 'Internal error');
+        if (!res.headersSent) rpcError(res, 500, -32603, 'Internal error');
+        else res.end();
+        this.log(`MCP request failed: ${e.message}`);
+        return;
+      } finally {
+        this.pending--;
       }
     }
     try {
