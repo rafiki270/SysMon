@@ -147,7 +147,7 @@ app.whenReady().then(() => {
   handle('connect-grok', () => connectGrok());
   handle('open-ci', url => { if (typeof url === 'string' && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(url)) return shell.openExternal(url); });
   if (TEST) {
-    handle('test:displays', list => { displayStub = list; placeWindow(); return allDisplays().map(d => d.id); });
+    handle('test:displays', (list, opts) => { displayStub = list; if (opts?.reset) { settings.displayId = null; saveSettings(file, settings); } placeWindow(); return allDisplays().map(d => d.id); });
     handle('test:real-displays', () => { displayStub = null; placeWindow(); return true; });
   }
   monitor.on('update', s => { if (!win.isDestroyed()) win.webContents.send('update', s); });

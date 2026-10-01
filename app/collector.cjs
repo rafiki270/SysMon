@@ -130,13 +130,6 @@ async function claude(deps = {}) {
 // limits[]{window{duration,timeUnit},detail{...}}, usages{limit_5h|limit_7d{used_ratio,reset_time}}.
 function kimiWindows(r) {
   const out = [];
-  for (const [key, v] of Object.entries(r?.usages || {})) {
-    const raw = v?.used_ratio;
-    if (raw == null || raw === '' || typeof raw === 'boolean') continue; // never coerce missing to 0
-    const ratio = Number(raw);
-    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) continue;
-    out.push({ label: key.replace(/^limit_/, ''), used: ratio * 100, resetAt: parseReset(v.reset_time) });
-  }
   for (const x of r?.limits || []) {
     const d = x?.detail || x;
     const q = quotaUsed(d);
@@ -151,9 +144,23 @@ function kimiWindows(r) {
     const q = quotaUsed(u);
     if (q) out.push({ label: 'Overall', used: q.usedPct, resetAt: parseReset(u.resetTime) });
   }
-  // Same window can be reported by more than one schema shape; keep the first.
-  const seen = new Set();
-  return out.filter(w => Number.isFinite(w.used) && !seen.has(w.label) && seen.add(w.label));
+  for (const [key, v] of Object.entries(r?.usages || {})) {
+    const raw = v?.used_ratio;
+    if (raw == null || raw === '' || typeof raw === 'boolean') continue; // never coerce missing to 0
+    const ratio = Number(raw);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) continue;
+    out.push({ label: key.replace(/^limit_/, ''), used: ratio * 100, resetAt: parseReset(v.reset_time) });
+  }
+  // The same window can be reported by several schema shapes that disagree
+  // (e.g. usages ratio 0 while the detailed limits entry says 24%). Keep the
+  // highest valid utilization, preserving the selected window's own reset.
+  const byLabel = new Map();
+  for (const w of out) {
+    if (!Number.isFinite(w.used)) continue;
+    const prev = byLabel.get(w.label);
+    if (!prev || w.used > prev.used) byLabel.set(w.label, w);
+  }
+  return [...byLabel.values()];
 }
 function kimiToken() {
   if (process.env.KIMI_API_KEY) return { token: process.env.KIMI_API_KEY, via: 'env' };

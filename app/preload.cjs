@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('sysmon', {
   selectDisplay: id => ipcRenderer.invoke('display', id),
   connectGrok: () => ipcRenderer.invoke('connect-grok'),
   openCi: url => ipcRenderer.invoke('open-ci', url),
-  testDisplays: list => ipcRenderer.invoke('test:displays', list),
+  testDisplays: (list, opts) => ipcRenderer.invoke('test:displays', list, opts),
   testRealDisplays: () => ipcRenderer.invoke('test:real-displays'),
   onUpdate: fn => { const listener = (_, s) => fn(s); ipcRenderer.on('update', listener); return () => ipcRenderer.removeListener('update', listener); },
 });
