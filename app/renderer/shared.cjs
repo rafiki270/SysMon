@@ -75,11 +75,12 @@
     return 'offline';
   }
 
-  // Pick the primary (most used) window; extras shown as secondary lines.
+  // Pick the primary window: the provider's main bucket when flagged,
+  // otherwise the most used one; extras shown as secondary lines.
   function primaryWindow(windows) {
     const list = (windows || []).filter((w) => Number.isFinite(w.used));
     if (!list.length) return { primary: null, extras: [] };
-    const sorted = list.slice().sort((a, b) => b.used - a.used);
+    const sorted = list.slice().sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0) || b.used - a.used);
     return { primary: sorted[0], extras: sorted.slice(1) };
   }
 

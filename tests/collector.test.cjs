@@ -27,6 +27,44 @@ test('kimiWindows maps all three live schema shapes; malformed never becomes 0',
   assert.strictEqual(kimiWindows({ usages: { limit_5h: { used_ratio: 0.1 } } })[0].resetAt, null);
 });
 
+test('kimiWindows drops null/empty/boolean ratios instead of coercing to 0', () => {
+  const w = kimiWindows({ usages: {
+    a: { used_ratio: null }, b: { used_ratio: '' }, c: { used_ratio: true }, d: { used_ratio: 0 },
+  } });
+  assert.strictEqual(w.length, 1); // only the real 0 survives
+  assert.strictEqual(w[0].label, 'd');
+  assert.strictEqual(w[0].used, 0);
+});
+
+test('kimiWindows: used-null falls back to remaining; corrupt pairs are dropped', () => {
+  const w = kimiWindows({ limits: [
+    { name: 'fromRemaining', detail: { limit: 100, used: null, remaining: 25 } },
+    { name: 'usedBeyondLimit', detail: { limit: 100, used: 150 } },
+    { name: 'negativeRemaining', detail: { limit: 100, used: null, remaining: -5 } },
+    { name: 'boolUsed', detail: { limit: 100, used: false, remaining: null } },
+    { name: 'realZero', detail: { limit: 100, used: 0, remaining: 100 } },
+  ] });
+  const byLabel = Object.fromEntries(w.map((x) => [x.label, x]));
+  assert.strictEqual(byLabel.fromRemaining.used, 75);
+  assert.strictEqual(byLabel.realZero.used, 0);
+  assert.ok(!('usedBeyondLimit' in byLabel) && !('negativeRemaining' in byLabel) && !('boolUsed' in byLabel));
+  // usage block: malformed usage yields no Overall window, never 0
+  assert.deepStrictEqual(kimiWindows({ usage: { limit: 100, used: null, remaining: null } }), []);
+  assert.strictEqual(kimiWindows({ usage: { limit: 200, remaining: 50 } })[0].used, 75);
+});
+
+test('codexWindows labels window spans accurately (no 0h, no fake weekly)', () => {
+  const w = codexWindows({ rateLimitsByLimitId: {
+    a: { limitId: 'a', primary: { usedPercent: 10, windowDurationMins: 15 } },
+    b: { limitId: 'b', primary: { usedPercent: 10, windowDurationMins: 90 } },
+    c: { limitId: 'c', primary: { usedPercent: 10, windowDurationMins: 300 } },
+    d: { limitId: 'd', primary: { usedPercent: 10, windowDurationMins: 1440 } },
+    e: { limitId: 'e', primary: { usedPercent: 10, windowDurationMins: 10080 } },
+  } });
+  const spans = w.map((x) => x.label.split('·')[1].trim());
+  assert.deepStrictEqual(spans, ['15m', '1h 30m', '5h', '1d', 'weekly']);
+});
+
 test('codexWindows leads with the main bucket and drops malformed entries', () => {
   const w = codexWindows({ rateLimitsByLimitId: {
     base_model_inference: { limitId: 'base_model_inference', limitName: 'gpt-reserve', primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1790950962 } },

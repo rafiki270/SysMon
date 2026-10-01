@@ -29,11 +29,17 @@ function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = 
   return { win32: 'minis', darwin: 'dictator', linux: 'umac' }[platform] || null;
 }
 
+// Remote shells differ: Minis runs PowerShell (system Node is on PATH), while
+// macOS/Linux need the user's local Node prepended to PATH first.
+function remoteCommand(host, mode) {
+  if (host.os === 'WINDOWS') return `node - ${mode}`;
+  return "export PATH=\"$HOME/.local/node/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; node - " + mode;
+}
+
 function sshCollect(host, mode, target = host.ssh) {
   return new Promise((resolve, reject) => {
     // Source is sent over encrypted stdin. No remote installation or credentials copy.
-    const remote = "export PATH=\"$HOME/.local/node/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; node - " + mode;
-    const p = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, remote], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, remoteCommand(host, mode)], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', done = false;
     const timer = setTimeout(() => finish(new Error('timeout')), 45000);
     function finish(e, v) { if (done) return; done = true; clearTimeout(timer); p.kill(); e ? reject(e) : resolve(v); }
@@ -167,4 +173,4 @@ class Monitor extends EventEmitter {
     this.links = [];
   }
 }
-module.exports = { Monitor, hosts, sshCollect, reconcileAccount, detectLocalId, STALE_AFTER_MS };
+module.exports = { Monitor, hosts, sshCollect, reconcileAccount, detectLocalId, remoteCommand, STALE_AFTER_MS };

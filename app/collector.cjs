@@ -44,9 +44,22 @@ function codexCommand(homeDir=home) {
   const paths=os.platform()==='win32' ? [path.join(homeDir,'AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')] : [path.join(homeDir,'.local/share/codex-cli/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex'),'/Applications/Codex.app/Contents/Resources/codex'];
   return paths.find(p=>fs.existsSync(p)) || 'codex';
 }
-// null/undefined/'' are missing data, not 0%; only real numbers and numeric strings count.
-const finitePct = v => { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
+// null/undefined/''/booleans are missing data, not 0%; only real numbers and numeric strings count.
+const finitePct = v => { if (v == null || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
 const parseReset = v => { if (v == null) return null; const t = typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : Date.parse(v); return Number.isFinite(t) ? t : null; };
+// A quota quantity (used/remaining) is a real non-negative number only;
+// null/''/booleans must not coerce to 0.
+const finiteQty = v => { if (v == null || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; };
+// Derive used quota from `used`, else from `remaining`; drop the window when
+// neither is valid or values contradict the limit. Never fabricate 0.
+function quotaUsed(d) {
+  const limit = finiteQty(d?.limit);
+  if (!(limit > 0)) return null;
+  const usedN = finiteQty(d?.used), remaining = finiteQty(d?.remaining);
+  if (usedN != null && usedN <= limit) return { usedPct: 100 * usedN / limit };
+  if (remaining != null && remaining <= limit) return { usedPct: 100 * (limit - remaining) / limit };
+  return null;
+}
 // Turn the Codex app-server rate-limit payload into windows. The main bucket
 // (limitId "codex" / the root rateLimits object) always leads; reserve buckets
 // follow compactly. Malformed entries are dropped, never shown as 0%.
@@ -62,7 +75,12 @@ function codexWindows(result) {
       const isMain = l.limitId === 'codex' || (!l.limitId && !l.limitName);
       const name = isMain ? 'Codex' : (l.limitName || l.limitId || 'Codex');
       const mins = Number(w.windowDurationMins);
-      const span = !Number.isFinite(mins) ? '' : mins >= 1440 ? ' · weekly' : ` · ${Math.round(mins / 60)}h`;
+      const span = !Number.isFinite(mins) || mins <= 0 ? ''
+        : mins % 10080 === 0 ? ' · weekly'
+        : mins % 1440 === 0 ? ` · ${mins / 1440}d`
+        : mins % 60 === 0 ? ` · ${mins / 60}h`
+        : mins < 60 ? ` · ${mins}m`
+        : ` · ${Math.floor(mins / 60)}h ${mins % 60}m`;
       windows.push({ label: `${name}${span}`, used, resetAt: parseReset(w.resetsAt), main: isMain });
     }
   }
@@ -111,25 +129,25 @@ async function claude(deps = {}) {
 function kimiWindows(r) {
   const out = [];
   for (const [key, v] of Object.entries(r?.usages || {})) {
-    const ratio = Number(v?.used_ratio);
+    const raw = v?.used_ratio;
+    if (raw == null || raw === '' || typeof raw === 'boolean') continue; // never coerce missing to 0
+    const ratio = Number(raw);
     if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) continue;
     out.push({ label: key.replace(/^limit_/, ''), used: ratio * 100, resetAt: parseReset(v.reset_time) });
   }
   for (const x of r?.limits || []) {
     const d = x?.detail || x;
-    const limit = Number(d?.limit), usedN = Number(d?.used), remaining = Number(d?.remaining);
-    if (!(limit > 0)) continue;
-    const used = Number.isFinite(usedN) ? usedN : Number.isFinite(remaining) ? limit - remaining : null;
-    if (used == null) continue;
+    const q = quotaUsed(d);
+    if (!q) continue;
     const unit = String(x.window?.timeUnit || '').replace(/^TIME_UNIT_/, '').toLowerCase();
     const dur = Number(x.window?.duration);
     const durLabel = x.window ? (unit.startsWith('min') && dur >= 60 && dur % 60 === 0 ? `${dur / 60}h` : `${dur} ${unit || 'window'}`) : 'Limit';
-    out.push({ label: x.name || x.title || durLabel, used: finitePct(100 * used / limit) ?? 0, resetAt: parseReset(d.resetTime || d.resetAt || d.reset_at) });
+    out.push({ label: x.name || x.title || durLabel, used: q.usedPct, resetAt: parseReset(d.resetTime || d.resetAt || d.reset_at) });
   }
   const u = r?.usage;
-  if (u && Number(u.limit) > 0) {
-    const used = Number.isFinite(Number(u.used)) ? Number(u.used) : Number.isFinite(Number(u.remaining)) ? Number(u.limit) - Number(u.remaining) : null;
-    if (used != null) out.push({ label: 'Overall', used: finitePct(100 * used / Number(u.limit)) ?? 0, resetAt: parseReset(u.resetTime) });
+  if (u) {
+    const q = quotaUsed(u);
+    if (q) out.push({ label: 'Overall', used: q.usedPct, resetAt: parseReset(u.resetTime) });
   }
   return out.filter(w => Number.isFinite(w.used));
 }
