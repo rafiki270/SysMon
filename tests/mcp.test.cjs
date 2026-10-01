@@ -70,12 +70,8 @@ function adapterTransports(env) {
   ];
   const binary = packagedBinary();
   if (binary) {
-    if (process.platform === 'win32') {
-      const asarMain = packagedAsarMain(binary);
-      if (asarMain) modes.push(['packaged', { command: binary, args: [asarMain, '--mcp-stdio'], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }]);
-    } else {
-      modes.push(['packaged', { command: binary, args: ['--mcp-stdio'], env }]);
-    }
+    const asarMain = packagedAsarMain(binary);
+    if (asarMain) modes.push(['packaged', { command: binary, args: [asarMain, '--mcp-stdio'], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }]);
   }
   return modes;
 }

@@ -95,8 +95,8 @@ token from the local userData file — so **client configs contain no secrets**:
 | Platform | Command |
 |---|---|
 | Windows | `ELECTRON_RUN_AS_NODE=1` + `SysMon.exe <install>\resources\app.asar\app\main.cjs --mcp-stdio` (see note below) |
-| macOS | `/Applications/SysMon.app/Contents/MacOS/SysMon --mcp-stdio` |
-| Linux | `<install dir>/sysmon --mcp-stdio` (or the AppImage path) |
+| macOS | `ELECTRON_RUN_AS_NODE=1` + app executable + `Contents/Resources/app.asar/app/main.cjs --mcp-stdio` |
+| Linux | `ELECTRON_RUN_AS_NODE=1` + `<install dir>/sysmon <install dir>/resources/app.asar/app/main.cjs --mcp-stdio` |
 
 The `--mcp-stdio` dispatch runs before the single-instance lock, windows, and
 provider pollers — it never opens a second GUI.
@@ -112,19 +112,19 @@ set ELECTRON_RUN_AS_NODE=1
 "C:\Users\<you>\Applications\SysMon\SysMon.exe" "C:\Users\<you>\Applications\SysMon\resources\app.asar\app\main.cjs" --mcp-stdio
 ```
 
-The same RunAsNode form also works on macOS/Linux for fully headless use
-(e.g. an SSH session), though the bare `--mcp-stdio` binary invocation is
-verified there and is simpler.
+Use the same RunAsNode form on macOS/Linux for fully headless use,
+including SSH sessions without a desktop display.
 
 Example client configuration (durable installed paths, no token embedded).
-macOS/Linux:
+macOS (on Linux substitute the executable and its resources path):
 
 ```json
 {
   "mcpServers": {
     "sysmon": {
       "command": "/Applications/SysMon.app/Contents/MacOS/SysMon",
-      "args": ["--mcp-stdio"]
+      "args": ["/Applications/SysMon.app/Contents/Resources/app.asar/app/main.cjs", "--mcp-stdio"],
+      "env": { "ELECTRON_RUN_AS_NODE": "1" }
     }
   }
 }
