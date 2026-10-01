@@ -121,6 +121,17 @@ failures it actually found — stale data is shown as stale, never as
   persists; hotplug re-resolves. Developed for the 1920x720 secondary above a
   1920x1080 primary; all three layouts fit six cards at 1920x720.
 
+## MCP server + mDNS
+
+The full monitor state (every machine metric and CPU history, every account
+quota window, CI results) is served read-only over MCP Streamable HTTP at
+`http://<lan-ip>:7738/mcp`, authenticated by a durable per-installation
+bearer token in the protected userData `mcp-token` file, and advertised on
+the LAN as `_sysmon._tcp` / `_mcp._tcp` via Bonjour (endpoint metadata only —
+never stats or the token). Stdio-only MCP clients use the installed app's
+`--mcp-stdio` adapter, which reads the token locally so client configs hold
+no secrets. See [docs/MCP.md](docs/MCP.md).
+
 ## Development
 
 ```sh

@@ -1,5 +1,17 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, screen, session, Menu, Tray, nativeImage, shell } = require('electron');
+// `--mcp-stdio`: run the read-only MCP stdio adapter instead of the GUI (how
+// installed MCP clients reach the app's stats; see docs/MCP.md). Dispatched
+// before electron, the single-instance lock, windows, and provider pollers:
+// the adapter never launches a second GUI, never touches the lock, and exits
+// when the client's stdio closes.
+if (process.argv.includes('--mcp-stdio')) {
+  require('./mcp/stdio.cjs').main().catch((e) => {
+    console.error(`SysMon MCP stdio adapter failed: ${e.message}`);
+    process.exit(1);
+  });
+  return;
+}
+const { app, BrowserWindow, ipcMain, screen, session, Menu, Tray, nativeImage, shell, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { Monitor } = require('./monitor.cjs');
@@ -7,7 +19,7 @@ const { hosts } = require('./monitor.cjs');
 const { createClaudeAuth } = require('./auth.cjs');
 const { loadSettings, saveSettings, layouts, chooseDisplay } = require('./settings.cjs');
 
-let win, tray, monitor, grokWindow, settings, file, grokTimer, claudeAuth, quitting = false;
+let win, tray, monitor, grokWindow, settings, file, grokTimer, claudeAuth, quitting = false, mcpHandle = null;
 const claudeRefreshTimers = new Set();
 // Test mode (SYSMON_TEST=1): no real polling, no login items, isolated userData,
 // deterministic fixture states from SYSMON_FIXTURE. Used by Playwright flows.
@@ -182,6 +194,8 @@ app.whenReady().then(() => {
     { label: 'Show on second display', click: () => { settings.displayId = null; placeWindow(); win.show(); } },
     { label: 'Displays', submenu: allDisplays().map((d, i) => ({ label: `Display ${i + 1} · ${d.size.width} × ${d.size.height}`, type: 'radio', checked: d.id === settings.displayId, click: () => { settings.displayId = d.id; placeWindow(); win.show(); } })) },
     { label: 'Connect Grok', click: connectGrok },
+    { label: `MCP: ${mcpHandle?.endpoint() || 'unavailable'}`, enabled: false },
+    { label: 'Copy MCP endpoint', enabled: !!mcpHandle?.endpoint(), click: () => clipboard.writeText(mcpHandle.endpoint()) },
     { label: 'Start at login', type: 'checkbox', checked: loginItemState(), click: item => setLoginItem(item.checked) },
     { type: 'separator' },
     { label: 'Quit SysMon', click: () => { quitting = true; app.quit(); } },
@@ -201,6 +215,20 @@ app.whenReady().then(() => {
   } else if (process.env.SYSMON_FIXTURE) {
     applyFixture(process.env.SYSMON_FIXTURE);
   }
+  // Read-only LAN access to the same monitor state: MCP (Streamable HTTP,
+  // bearer token from userData) plus mDNS discovery. Test mode keeps the LAN
+  // listener and advertisement off unless SYSMON_MCP=1, and then binds an
+  // ephemeral port inside the isolated userData so tests never touch the
+  // production port or the network. A startup failure never crashes the app.
+  if (!TEST || process.env.SYSMON_MCP === '1') {
+    require('./mcp/index.cjs').start({
+      monitor,
+      userData: app.getPath('userData'),
+      log: msg => console.log(`[sysmon] ${msg}`),
+      port: Number(process.env.SYSMON_MCP_PORT) || (TEST ? 0 : 7738),
+      mdns: !TEST,
+    }).then(h => { mcpHandle = h; }).catch(e => console.log(`[sysmon] MCP failed to start: ${e.message}`));
+  }
 });
-app.on('before-quit', () => { quitting = true; monitor?.stop(); clearTimeout(grokTimer); for (const t of claudeRefreshTimers) clearTimeout(t); claudeRefreshTimers.clear(); });
+app.on('before-quit', () => { quitting = true; monitor?.stop(); clearTimeout(grokTimer); for (const t of claudeRefreshTimers) clearTimeout(t); claudeRefreshTimers.clear(); mcpHandle?.stop(); });
 app.on('window-all-closed', () => {});
