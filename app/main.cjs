@@ -155,7 +155,7 @@ app.whenReady().then(() => {
   const claudeLoginLog = [];
   const recordSpawn = (command, args) => { claudeLoginLog.push({ command, args }); return { on(ev, cb) { if (ev === 'exit') setImmediate(() => cb(0)); return this; }, unref() {} }; };
   claudeAuth = createClaudeAuth({
-    hosts: hosts.map(h => ({ id: h.id, os: h.os, ssh: h.ssh, local: h.id === monitor.localId })),
+    hosts: hosts.map(h => ({ id: h.id, os: h.os, ssh: h.ssh, fallback: h.fallback, local: h.id === monitor.localId })),
     claudeHosts: monitor.state.accounts.filter(a => a.vendor === 'Claude').map(a => a.host),
     ...(TEST ? { spawnImpl: recordSpawn, writeFile: async (p, content) => { claudeLoginLog.push({ script: p, content }); } } : {}),
     onLaunched: TEST ? null : hostId => {
