@@ -1,0 +1,85 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const { Monitor, reconcileAccount, hosts } = require('../app/monitor.cjs');
+
+test('six account cards: Codex+Claude on Minis and dictator, Kimi on dictator, Grok web; none for umac', () => {
+  const m = new Monitor();
+  const ids = m.state.accounts.map((a) => a.id);
+  assert.deepStrictEqual(ids.sort(), ['dictator-Claude', 'dictator-Codex', 'dictator-Kimi', 'grok', 'minis-Claude', 'minis-Codex'].sort());
+  assert.ok(!m.state.accounts.some((a) => a.host === 'umac'));
+});
+
+test('applyMetrics stores real values and daemon history; never fabricates', () => {
+  const m = new Monitor();
+  const host = hosts.find((h) => h.id === 'dictator');
+  m.applyMetrics(host, { type: 'metrics', source: 'daemon', cpu: 42.4, mem: 55, disk: 70, uptime: 100, history: [{ at: 1, cpu: 1 }, { at: 2, cpu: null }], sampledAt: Date.now() });
+  const s = m.machine('dictator');
+  assert.strictEqual(s.status, 'live');
+  assert.strictEqual(s.cpu, 42.4);
+  assert.strictEqual(s.history.length, 1); // null cpu samples filtered
+});
+
+test('collector-source metrics build a local 60s ring', () => {
+  const m = new Monitor();
+  const host = hosts.find((h) => h.id === 'umac');
+  const now = Date.now();
+  m.applyMetrics(host, { source: 'collector', cpu: 10, sampledAt: now - 61000 });
+  m.applyMetrics(host, { source: 'collector', cpu: 20, sampledAt: now });
+  const s = m.machine('umac');
+  assert.strictEqual(s.cpu, 20);
+  assert.strictEqual(s.history.length, 1); // older than 60s trimmed
+  assert.strictEqual(s.history[0].cpu, 20);
+});
+
+test('degrade preserves last valid reading as stale instead of zeroing', () => {
+  const m = new Monitor();
+  const host = hosts.find((h) => h.id === 'dictator');
+  m.applyMetrics(host, { source: 'daemon', cpu: 33, mem: 44, sampledAt: Date.now() });
+  m.degrade(host, 'offline');
+  const s = m.machine('dictator');
+  assert.strictEqual(s.status, 'stale');
+  assert.strictEqual(s.cpu, 33);
+  assert.strictEqual(s.mem, 44);
+});
+
+test('degrade on never-reached host is offline, not stale', () => {
+  const m = new Monitor();
+  m.degrade(hosts.find((h) => h.id === 'umac'), 'offline');
+  assert.strictEqual(m.machine('umac').status, 'offline');
+  assert.strictEqual(m.machine('umac').cpu, undefined);
+});
+
+test('reconcileAccount keeps last good windows when provider fails', () => {
+  const live = reconcileAccount(null, { vendor: 'Codex', status: 'live', windows: [{ label: 'x', used: 40, resetAt: 1 }], sampledAt: 100 });
+  const stale = reconcileAccount(live, { vendor: 'Codex', status: 'unavailable', windows: [] });
+  assert.strictEqual(stale.status, 'stale');
+  assert.strictEqual(stale.windows.length, 1);
+  assert.strictEqual(stale.lastSuccessAt, 100);
+  const again = reconcileAccount(stale, { vendor: 'Codex', status: 'live', windows: [{ label: 'x', used: 41, resetAt: 2 }], sampledAt: 200 });
+  assert.strictEqual(again.status, 'live');
+  assert.strictEqual(again.lastSuccessAt, 200);
+});
+
+test('reconcileAccount without history stays explicit unavailable/auth', () => {
+  const r = reconcileAccount(null, { vendor: 'Kimi', status: 'auth', message: 'sign in', windows: [] });
+  assert.strictEqual(r.status, 'auth');
+  const u = reconcileAccount(null, { vendor: 'Kimi', status: 'unavailable', windows: [] });
+  assert.strictEqual(u.status, 'unavailable');
+});
+
+test('setGrok updates the web card', () => {
+  const m = new Monitor();
+  m.setGrok({ vendor: 'Grok', status: 'live', sampledAt: Date.now(), windows: [{ label: 'Grok auto · 2h', used: 12, resetAt: null }] });
+  const g = m.state.accounts.find((a) => a.id === 'grok');
+  assert.strictEqual(g.status, 'live');
+  assert.strictEqual(g.windows[0].used, 12);
+});
+
+test('watchdog marks silent live machines stale', () => {
+  const m2 = new Monitor();
+  m2.applyMetrics(hosts[0], { source: 'local', cpu: 5, sampledAt: Date.now() - 20000 });
+  m2.watchdog();
+  m2.stop();
+  assert.strictEqual(m2.machine(hosts[0].id).status, 'stale');
+});
