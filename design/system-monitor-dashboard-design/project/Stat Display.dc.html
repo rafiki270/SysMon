@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0d0b;--panel:#0f1411;--line:#1f2a22;--grid:rgba(63,196,138,.06);--ink:#e6ece7;--dim:#8a9a8f;--mute:#4f5c53;--accent:#3fc48a;--warn:#e8a838;--crit:#e05a4f}
+html,body{margin:0;background:#141816;font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;color:var(--ink)}
+a{color:var(--accent)}a:hover{color:var(--ink)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+</style>
+</helmet>
+
+<section style="display:flex;flex-wrap:wrap;gap:48px;padding:48px;align-items:flex-start">
+
+<!-- ================= 1a : Radial rows ================= -->
+<div id="1a" style="display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;gap:12px;align-items:center;font-size:13px;color:#8a9a8f"><span style="background:var(--accent);color:#0a0d0b;font-weight:700;padding:2px 8px;border-radius:3px">1a</span>Radial gauges · machines as rows</div>
+  <div style="width:1920px;height:720px;background:var(--bg);color:var(--ink);display:grid;grid-template-rows:44px 1fr;box-sizing:border-box;border:1px solid var(--line);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--line);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)">
+      <div style="display:flex;gap:24px;align-items:center"><span style="color:var(--ink);font-weight:700">OPS · STAT BOARD</span><span>3 hosts</span><span>4 accounts</span></div>
+      <div style="display:flex;gap:24px;align-items:center"><span style="display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent);animation:blink 1.6s infinite"></span>live</span><span>{{ dateStr }}</span><span style="color:var(--ink);font-weight:700">{{ clock }}</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 520px 380px;min-height:0">
+      <!-- machines -->
+      <div style="display:grid;grid-template-rows:repeat(3,1fr);border-right:1px solid var(--line)">
+        <sc-for list="{{ machines }}" as="m" hint-placeholder-count="3">
+          <div style="display:grid;grid-template-columns:220px 1fr 1fr 1fr;align-items:center;padding:0 24px;border-bottom:1px solid var(--line);gap:16px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:22px;font-weight:700;letter-spacing:.04em">{{ m.os }}</div>
+              <div style="font-size:12px;color:var(--dim)">{{ m.host }}</div>
+              <div style="font-size:12px;color:var(--mute)">up {{ m.uptime }}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <svg width="132" height="132" viewBox="0 0 100 100" style="transform:rotate(-90deg)"><circle cx="50" cy="50" r="40" fill="none" stroke="var(--line)" stroke-width="7"></circle><circle cx="50" cy="50" r="40" fill="none" stroke="{{ m.cpuColor }}" stroke-width="7" stroke-linecap="butt" stroke-dasharray="{{ m.cpuDash }}" style="transition:stroke-dasharray .8s"></circle></svg>
+              <div style="display:flex;flex-direction:column;gap:2px;margin-left:-104px;width:76px;text-align:center;pointer-events:none"><div style="font-size:24px;font-weight:700">{{ m.cpu }}<span style="font-size:13px;color:var(--dim)">%</span></div><div style="font-size:11px;letter-spacing:.1em;color:var(--dim)">CPU</div></div>
+              <div style="font-size:12px;color:var(--dim);margin-left:14px">{{ m.cores }} cores<br>load {{ m.load }}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="font-size:11px;letter-spacing:.1em;color:var(--dim)">MEM</div>
+              <div style="font-size:34px;font-weight:700;line-height:1;color:{{ m.memColor }}">{{ m.mem }}<span style="font-size:14px;color:var(--dim)">%</span></div>
+              <div style="font-size:12px;color:var(--dim)">{{ m.memUsed }} / {{ m.memTotal }} GB</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="font-size:11px;letter-spacing:.1em;color:var(--dim)">DISK</div>
+              <div style="font-size:34px;font-weight:700;line-height:1;color:{{ m.diskColor }}">{{ m.disk }}<span style="font-size:14px;color:var(--dim)">%</span></div>
+              <div style="font-size:12px;color:var(--dim)">{{ m.diskFree }} GB free</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <!-- accounts -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;border-right:1px solid var(--line)">
+        <sc-for list="{{ accounts }}" as="a" hint-placeholder-count="4">
+          <div style="padding:20px 24px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);display:flex;flex-direction:column;justify-content:space-between">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:12px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase">{{ a.vendor }}</div><div style="font-size:12px;color:var(--mute)">{{ a.label }}</div></div>
+            <div style="display:flex;align-items:center;gap:18px">
+              <svg width="96" height="96" viewBox="0 0 100 100" style="transform:rotate(-90deg)"><circle cx="50" cy="50" r="42" fill="none" stroke="var(--line)" stroke-width="10"></circle><circle cx="50" cy="50" r="42" fill="none" stroke="{{ a.color }}" stroke-width="10" stroke-dasharray="{{ a.dash }}" style="transition:stroke-dasharray .8s"></circle></svg>
+              <div style="display:flex;flex-direction:column;gap:4px"><div style="font-size:34px;font-weight:700;line-height:1">{{ a.used }}<span style="font-size:14px;color:var(--dim)">%</span></div><div style="font-size:12px;color:var(--dim)">of {{ a.window }} window</div></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);padding-top:10px"><span style="font-size:11px;letter-spacing:.1em;color:var(--dim)">RESET IN</span><span style="font-size:18px;font-weight:700">{{ a.reset }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+      <!-- CI -->
+      <div style="display:flex;flex-direction:column;padding:20px 24px;gap:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:12px;letter-spacing:.1em;color:var(--dim)">FAILING CI</span><span style="font-size:22px;font-weight:700;color:var(--crit)">{{ ciCount }}</span></div>
+        <sc-for list="{{ ci }}" as="j" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)"><span style="width:8px;height:8px;background:var(--crit);flex:none"></span><span style="font-size:15px">{{ j.repo }}</span></div>
+        </sc-for>
+        <div style="margin-top:auto;font-size:11px;color:var(--mute)">GitHub Actions · polled {{ polled }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 1b : Bars, machines as columns ================= -->
+<div id="1b" style="display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;gap:12px;align-items:center;font-size:13px;color:#8a9a8f"><span style="background:var(--accent);color:#0a0d0b;font-weight:700;padding:2px 8px;border-radius:3px">1b</span>Horizontal bars · machines as columns, accounts as a strip</div>
+  <div style="width:1920px;height:720px;background:var(--bg);color:var(--ink);display:grid;grid-template-columns:1fr 380px;box-sizing:border-box;border:1px solid var(--line);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px">
+    <div style="display:grid;grid-template-rows:1fr 220px;border-right:1px solid var(--line);min-height:0">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr)">
+        <sc-for list="{{ machines }}" as="m" hint-placeholder-count="3">
+          <div style="padding:24px 28px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:22px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:26px;font-weight:700;letter-spacing:.04em">{{ m.os }}</span><span style="font-size:12px;color:var(--dim)">{{ m.host }} · up {{ m.uptime }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">CPU · {{ m.cores }} cores · load {{ m.load }}</span><span style="font-size:30px;font-weight:700">{{ m.cpu }}%</span></div>
+              <div style="height:22px;background:var(--line);position:relative"><div style="height:100%;background:{{ m.cpuColor }};width:{{ m.cpuW }};transition:width .8s"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:1px solid var(--line);padding-top:18px">
+              <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">MEM</span><span style="font-size:36px;font-weight:700;line-height:1;color:{{ m.memColor }}">{{ m.mem }}<span style="font-size:14px;color:var(--dim)">%</span></span><span style="font-size:12px;color:var(--dim)">{{ m.memUsed }} / {{ m.memTotal }} GB</span></div>
+              <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">DISK</span><span style="font-size:36px;font-weight:700;line-height:1;color:{{ m.diskColor }}">{{ m.disk }}<span style="font-size:14px;color:var(--dim)">%</span></span><span style="font-size:12px;color:var(--dim)">{{ m.diskFree }} GB free</span></div>
+            </div>
+            <div style="margin-top:auto;display:flex;justify-content:space-between;font-size:11px;color:var(--mute)"><span>{{ m.topProc }}</span><span>{{ m.topPct }}% cpu</span></div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr)">
+        <sc-for list="{{ accounts }}" as="a" hint-placeholder-count="4">
+          <div style="padding:20px 28px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase">{{ a.vendor }} · {{ a.label }}</span><span style="font-size:11px;color:var(--mute)">{{ a.window }}</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:44px;font-weight:700;line-height:1">{{ a.used }}<span style="font-size:16px;color:var(--dim)">%</span></span><span style="font-size:12px;color:var(--dim)">used</span></div>
+            <div style="height:14px;background:var(--line)"><div style="height:100%;background:{{ a.color }};width:{{ a.w }};transition:width .8s"></div></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:11px;letter-spacing:.12em;color:var(--dim)">RESET</span><span style="font-size:20px;font-weight:700">{{ a.reset }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0 24px;height:56px;border-bottom:1px solid var(--line)"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">{{ dateStr }}</span><span style="font-size:22px;font-weight:700">{{ clock }}</span></div>
+      <div style="display:flex;flex-direction:column;padding:20px 24px;gap:6px;flex:1">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">FAILING CI</span><span style="font-size:26px;font-weight:700;color:var(--crit)">{{ ciCount }}</span></div>
+        <sc-for list="{{ ci }}" as="j" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;align-items:center;padding:14px 16px;background:var(--panel);border-left:3px solid var(--crit)"><span style="font-size:15px">{{ j.repo }}</span></div>
+        </sc-for>
+        <div style="margin-top:auto;display:flex;justify-content:space-between;font-size:11px;color:var(--mute)"><span>GitHub Actions</span><span>polled {{ polled }}</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 1c : Big numerals + sparklines ================= -->
+<div id="1c" style="display:flex;flex-direction:column;gap:12px">
+  <div style="display:flex;gap:12px;align-items:center;font-size:13px;color:#8a9a8f"><span style="background:var(--accent);color:#0a0d0b;font-weight:700;padding:2px 8px;border-radius:3px">1c</span>Big numerals + 60s sparklines · countdown-first accounts</div>
+  <div style="width:1920px;height:720px;background:var(--bg);color:var(--ink);display:grid;grid-template-columns:1080px 1fr 380px;box-sizing:border-box;border:1px solid var(--line);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px">
+    <div style="display:grid;grid-template-rows:repeat(3,1fr);border-right:1px solid var(--line)">
+      <sc-for list="{{ machines }}" as="m" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:180px 1fr 1fr 180px;align-items:center;gap:20px;padding:0 28px;border-bottom:1px solid var(--line)">
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:24px;font-weight:700;letter-spacing:.04em">{{ m.os }}</span><span style="font-size:12px;color:var(--dim)">{{ m.host }}</span><span style="font-size:12px;color:var(--mute)">up {{ m.uptime }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:11px;letter-spacing:.12em;color:var(--dim)">CPU</span><span style="font-size:52px;font-weight:700;line-height:1;color:{{ m.cpuColor }}">{{ m.cpu }}<span style="font-size:18px;color:var(--dim)">%</span></span></div>
+            <svg width="100%" height="56" viewBox="0 0 240 56" preserveAspectRatio="none" style="display:block"><line x1="0" y1="55" x2="240" y2="55" stroke="var(--line)"></line><polyline points="{{ m.cpuPts }}" fill="none" stroke="{{ m.cpuColor }}" stroke-width="1.5" vector-effect="non-scaling-stroke"></polyline></svg>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:11px;letter-spacing:.12em;color:var(--dim)">MEM</span>
+            <span style="font-size:52px;font-weight:700;line-height:1;color:{{ m.memColor }}">{{ m.mem }}<span style="font-size:18px;color:var(--dim)">%</span></span>
+            <span style="font-size:12px;color:var(--dim)">{{ m.memUsed }} / {{ m.memTotal }} GB</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:11px;letter-spacing:.12em;color:var(--dim)">DISK</span>
+            <span style="font-size:52px;font-weight:700;line-height:1;color:{{ m.diskColor }}">{{ m.disk }}<span style="font-size:18px;color:var(--dim)">%</span></span>
+            <span style="font-size:12px;color:var(--dim)">{{ m.diskFree }} GB free</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-rows:repeat(4,1fr);border-right:1px solid var(--line)">
+      <sc-for list="{{ accounts }}" as="a" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px;padding:0 24px;border-bottom:1px solid var(--line)">
+          <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+            <span style="font-size:12px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase">{{ a.vendor }} · {{ a.label }}</span>
+            <span style="font-size:40px;font-weight:700;line-height:1">{{ a.reset }}</span>
+            <span style="font-size:11px;color:var(--mute)">until {{ a.window }} window resets</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <span style="font-size:28px;font-weight:700;line-height:1;color:{{ a.color }}">{{ a.used }}<span style="font-size:13px;color:var(--dim)">%</span></span>
+            <div style="width:110px;height:8px;background:var(--line)"><div style="height:100%;background:{{ a.color }};width:{{ a.w }};transition:width .8s"></div></div>
+            <span style="font-size:11px;color:var(--dim)">used</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0 24px;height:56px;border-bottom:1px solid var(--line)"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">{{ dateStr }}</span><span style="font-size:22px;font-weight:700">{{ clock }}</span></div>
+      <div style="display:flex;flex-direction:column;padding:20px 24px;flex:1">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="font-size:12px;letter-spacing:.12em;color:var(--dim)">FAILING CI</span><span style="font-size:26px;font-weight:700;color:var(--crit)">{{ ciCount }}</span></div>
+        <sc-for list="{{ ci }}" as="j" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)"><span style="font-size:11px;color:var(--crit);letter-spacing:.1em">FAIL</span><span style="font-size:15px">{{ j.repo }}</span></div>
+        </sc-for>
+        <div style="margin-top:auto;display:flex;justify-content:space-between;font-size:11px;color:var(--mute)"><span>GitHub Actions</span><span>polled {{ polled }}</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Dark&quot;,&quot;Light&quot;,&quot;Dark by night&quot;],&quot;default&quot;:&quot;Dark&quot;,&quot;tsType&quot;:&quot;'Dark'|'Light'|'Dark by night'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;options&quot;:[&quot;#3fc48a&quot;,&quot;#e8a838&quot;,&quot;#4f9fe6&quot;,&quot;#e46aa8&quot;],&quot;default&quot;:&quot;#3fc48a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;live&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Data&quot;}}">
+class Component extends DCLogic {
+  state = {
+    now: Date.now(),
+    machines: [
+      { os: 'LINUX', host: 'forge · 10.0.0.12', cores: 32, uptime: '41d 06h', cpu: 38, mem: 61, disk: 72, memTotal: 128, diskTotal: 2000, topProc: 'postgres', hist: { cpu: [], mem: [] } },
+      { os: 'WINDOWS', host: 'anvil · 10.0.0.21', cores: 16, uptime: '3d 12h', cpu: 74, mem: 82, disk: 54, memTotal: 64, diskTotal: 1000, topProc: 'Code.exe', hist: { cpu: [], mem: [] } },
+      { os: 'MAC', host: 'studio · 10.0.0.30', cores: 12, uptime: '9d 20h', cpu: 21, mem: 47, disk: 88, memTotal: 36, diskTotal: 512, topProc: 'node', hist: { cpu: [], mem: [] } },
+    ],
+    accounts: [
+      { vendor: 'Claude', label: 'work', used: 62, window: '5h', resetAt: Date.now() + (2 * 60 + 14) * 60000 },
+      { vendor: 'Claude', label: 'personal', used: 91, window: '5h', resetAt: Date.now() + 37 * 60000 },
+      { vendor: 'Codex', label: 'work', used: 28, window: '5h', resetAt: Date.now() + (4 * 60 + 2) * 60000 },
+      { vendor: 'Codex', label: 'personal', used: 100, window: 'weekly', resetAt: Date.now() + (31 * 60 + 8) * 60000 },
+    ],
+    ci: [
+      { repo: 'acme/api-gateway' }, { repo: 'acme/web-console' }, { repo: 'acme/infra-terraform' }, { repo: 'acme/mobile-ios' },
+    ],
+    polledAgo: 12,
+  };
+  componentDidMount() {
+    this.applyTheme();
+    const seed = this.state.machines.map(m => ({ ...m, hist: { cpu: Array.from({ length: 40 }, (_, i) => Math.max(2, Math.min(98, m.cpu + Math.sin(i / 3) * 12 + (Math.random() - .5) * 10))), mem: Array.from({ length: 40 }, (_, i) => Math.max(2, Math.min(98, m.mem + Math.sin(i / 5) * 3 + (Math.random() - .5) * 2))) } }));
+    this.setState({ machines: seed });
+    this.clock = setInterval(() => this.setState({ now: Date.now(), polledAgo: (this.state.polledAgo + 1) % 30 }), 1000);
+    this.tick = setInterval(() => this.step(), 1500);
+    this.themeTimer = setInterval(() => this.applyTheme(), 60000);
+  }
+  componentDidUpdate() { this.applyTheme(); }
+  componentWillUnmount() { clearInterval(this.clock); clearInterval(this.tick); clearInterval(this.themeTimer); }
+  applyTheme() {
+    const t = this.props.theme ?? 'Dark';
+    const h = new Date().getHours();
+    const dark = t === 'Dark' || (t === 'Dark by night' && (h >= 19 || h < 7));
+    const accent = this.props.accent ?? '#3fc48a';
+    const v = dark
+      ? { '--bg': '#0a0d0b', '--panel': '#0f1411', '--line': '#1f2a22', '--grid': 'rgba(120,160,135,.07)', '--ink': '#e6ece7', '--dim': '#8a9a8f', '--mute': '#5a6960' }
+      : { '--bg': '#eef0ea', '--panel': '#f7f8f3', '--line': '#cfd5cb', '--grid': 'rgba(40,70,50,.06)', '--ink': '#141a14', '--dim': '#4d574d', '--mute': '#7c877e' };
+    v['--accent'] = accent;
+    const r = document.documentElement.style;
+    for (const k in v) r.setProperty(k, v[k]);
+  }
+  step() {
+    if (this.props.live === false) return;
+    const j = (x, a, lo = 1, hi = 99) => Math.max(lo, Math.min(hi, x + (Math.random() - .5) * a));
+    this.setState(s => ({
+      machines: s.machines.map(m => {
+        const cpu = j(m.cpu, 14), mem = j(m.mem, 3);
+        return { ...m, cpu, mem, hist: { cpu: [...m.hist.cpu.slice(-39), cpu], mem: [...m.hist.mem.slice(-39), mem] } };
+      }),
+      accounts: s.accounts.map(a => Math.random() < .25 && a.used < 100 ? { ...a, used: Math.min(100, a.used + 1) } : a),
+    }));
+  }
+  renderVals() {
+    const { now, machines, accounts, ci, polledAgo } = this.state;
+    const C = 2 * Math.PI * 40, C2 = 2 * Math.PI * 42;
+    const col = v => v >= 90 ? 'var(--crit)' : v >= 75 ? 'var(--warn)' : 'var(--accent)';
+    const pts = arr => arr.map((v, i) => `${(i / 39) * 240},${55 - (v / 100) * 52}`).join(' ');
+    const fmt = ms => { if (ms <= 0) return 'now'; const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24); return d > 0 ? `${d}d ${h % 24}h` : h > 0 ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m ${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}s`; };
+    const d = new Date(now);
+    return {
+      clock: d.toLocaleTimeString('en-GB', { hour12: false }),
+      dateStr: d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase(),
+      polled: `${polledAgo}s ago`,
+      ciCount: ci.length,
+      ci,
+      machines: machines.map(m => {
+        const cpu = Math.round(m.cpu), mem = Math.round(m.mem);
+        return { ...m, cpu, mem, load: (m.cores * m.cpu / 100).toFixed(1), cores: m.cores,
+          cpuColor: col(cpu), memColor: col(mem), diskColor: col(m.disk),
+          cpuDash: `${cpu / 100 * C} ${C}`, memDash: `${mem / 100 * C} ${C}`,
+          cpuW: cpu + '%', memW: mem + '%', diskW: m.disk + '%',
+          memUsed: (m.memTotal * m.mem / 100).toFixed(1), diskFree: Math.round(m.diskTotal * (1 - m.disk / 100)),
+          topPct: Math.round(m.cpu * .6),
+          cpuPts: pts(m.hist.cpu), memPts: pts(m.hist.mem) };
+      }),
+      accounts: accounts.map(a => ({ ...a, color: col(a.used), dash: `${a.used / 100 * C2} ${C2}`, w: a.used + '%', reset: fmt(a.resetAt - now) })),
+    };
+  }
+}
+</script>
+</body>
+</html>
