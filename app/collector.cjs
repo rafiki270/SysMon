@@ -40,57 +40,124 @@ async function fetchJson(url,token,headers={}) {
   if(!r.ok) { const e=new Error('Request failed'); e.status=r.status;e.retryAfter=r.headers.get('retry-after');throw e; }
   return r.json();
 }
-function codexCommand() {
-  const paths=os.platform()==='win32' ? [path.join(home,'AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')] : [path.join(home,'.local/share/codex-cli/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex'),'/Applications/Codex.app/Contents/Resources/codex'];
+function codexCommand(homeDir=home) {
+  const paths=os.platform()==='win32' ? [path.join(homeDir,'AppData/Roaming/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe')] : [path.join(homeDir,'.local/share/codex-cli/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex'),'/Applications/Codex.app/Contents/Resources/codex'];
   return paths.find(p=>fs.existsSync(p)) || 'codex';
 }
-async function codex() {
-  return new Promise((resolve,reject)=>{
+// null/undefined/'' are missing data, not 0%; only real numbers and numeric strings count.
+const finitePct = v => { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
+const parseReset = v => { if (v == null) return null; const t = typeof v === 'number' ? (v > 1e12 ? v : v * 1000) : Date.parse(v); return Number.isFinite(t) ? t : null; };
+// Turn the Codex app-server rate-limit payload into windows. The main bucket
+// (limitId "codex" / the root rateLimits object) always leads; reserve buckets
+// follow compactly. Malformed entries are dropped, never shown as 0%.
+function codexWindows(result) {
+  const all = result?.rateLimitsByLimitId ? Object.values(result.rateLimitsByLimitId) : [result?.rateLimits];
+  const windows = [];
+  for (const l of all.filter(Boolean)) {
+    for (const key of ['primary', 'secondary']) {
+      const w = l[key];
+      if (!w) continue;
+      const used = finitePct(w.usedPercent);
+      if (used == null) continue;
+      const isMain = l.limitId === 'codex' || (!l.limitId && !l.limitName);
+      const name = isMain ? 'Codex' : (l.limitName || l.limitId || 'Codex');
+      const mins = Number(w.windowDurationMins);
+      const span = !Number.isFinite(mins) ? '' : mins >= 1440 ? ' · weekly' : ` · ${Math.round(mins / 60)}h`;
+      windows.push({ label: `${name}${span}`, used, resetAt: parseReset(w.resetsAt), main: isMain });
+    }
+  }
+  return windows.sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0) || b.used - a.used);
+}
+async function codex(deps = {}) {
+  const spawnFn = deps.spawn || spawn;
+  const bin = deps.command || codexCommand();
+  return new Promise((resolve, reject) => {
     // Strip agent-specific CODEX_HOME so the user's own ~/.codex login is used.
-    const env={...process.env};delete env.CODEX_HOME;
-    const child=spawn(codexCommand(),['app-server'],{windowsHide:true,env,stdio:['pipe','pipe','pipe']});let buf='',finished=false;
-    const finish=(err,result)=>{if(finished)return;finished=true;clearTimeout(timer);child.kill();err?reject(err):resolve(result);};
-    const timer=setTimeout(()=>finish(new Error('timeout')),25000);
-    child.on('error',e=>finish(e));child.on('exit',()=>finish(new Error('exited')));child.stderr.resume();
-    const send=x=>child.stdin.write(JSON.stringify(x)+'\n');
-    child.stdout.on('data',chunk=>{buf+=chunk.toString();if(buf.length>2e6)return finish(new Error('oversized'));let i;while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);let v;try{v=JSON.parse(line);}catch{continue;}
-      if(v.id===1){if(v.error)return finish(new Error('initialize'));send({method:'initialized'});send({id:2,method:'account/rateLimits/read'});}
-      if(v.id===2){if(v.error)return finish(Object.assign(new Error('limits'),{rpcMessage:v.error.message}));const r=v.result;const all=r.rateLimitsByLimitId?Object.values(r.rateLimitsByLimitId):[r.rateLimits];const windows=all.filter(Boolean).flatMap(l=>['primary','secondary'].map(k=>{const w=l[k];return w?{label:`${l.limitName||l.limitId||'Codex'} · ${w.windowDurationMins>=1440?'weekly':w.windowDurationMins/60+'h'}`,used:w.usedPercent,resetAt:w.resetsAt==null?null:w.resetsAt*1000}:null;})).filter(Boolean);finish(null,{vendor:'Codex',status:windows.length?'live':'unavailable',windows,sampledAt:Date.now()});}
-    }});
-    send({id:1,method:'initialize',params:{clientInfo:{name:'sysmon',title:'SysMon',version:'1.0.0'}}});
+    const env = { ...process.env }; delete env.CODEX_HOME;
+    const child = spawnFn(bin, ['app-server'], { windowsHide: true, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let buf = '', finished = false;
+    const finish = (err, result) => { if (finished) return; finished = true; clearTimeout(timer); try { child.kill(); } catch {} err ? reject(err) : resolve(result); };
+    const timer = setTimeout(() => finish(new Error('timeout')), 25000);
+    child.on('error', e => finish(e)); child.on('exit', () => finish(new Error('exited'))); child.stderr.resume();
+    const send = x => child.stdin.write(JSON.stringify(x) + '\n');
+    child.stdout.on('data', chunk => {
+      buf += chunk.toString(); if (buf.length > 2e6) return finish(new Error('oversized'));
+      let i; while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1); let v; try { v = JSON.parse(line); } catch { continue; }
+        if (v.id === 1) { if (v.error) return finish(Object.assign(new Error('initialize'), { rpcMessage: v.error.message })); send({ method: 'initialized' }); send({ id: 2, method: 'account/rateLimits/read' }); }
+        if (v.id === 2) { if (v.error) return finish(Object.assign(new Error('limits'), { rpcMessage: v.error.message })); const windows = codexWindows(v.result); finish(null, { vendor: 'Codex', status: windows.length ? 'live' : 'unavailable', windows, sampledAt: Date.now() }); }
+      }
+    });
+    send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'sysmon', title: 'SysMon', version: '1.0.0' } } });
   });
 }
-async function claude() {
-  let c=readJson(path.join(home,'.claude/.credentials.json'));
-  if(!c && os.platform()==='darwin') {try{c=JSON.parse(await command('/usr/bin/security',['find-generic-password','-s','Claude Code-credentials','-w']));}catch{}}
-  const t=c?.claudeAiOauth;
-  if(!t) throw Object.assign(new Error('missing'),{code:'ENOENT'});
+async function claude(deps = {}) {
+  const read = deps.readJson || readJson;
+  const fetcher = deps.fetchJson || fetchJson;
+  let c = read(path.join(home, '.claude/.credentials.json'));
+  if (!c && os.platform() === 'darwin') { try { c = JSON.parse(await command('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials', '-w'])); } catch {} }
+  const t = c?.claudeAiOauth;
+  if (!t) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
   // Claude Code writes an empty accessToken and expiresAt:0 when signed out.
-  if(!t.accessToken) return auth('Claude','Open Claude Code to sign in');
+  if (!t.accessToken) return auth('Claude', 'Open Claude Code to sign in');
   // Let the owning CLI rotate its credentials; never race a shared refresh token.
-  if(Number.isFinite(t.expiresAt) && t.expiresAt<=Date.now()) return auth('Claude','Open Claude Code to renew sign-in');
-  const r=await fetchJson('https://api.anthropic.com/api/oauth/usage',t.accessToken,{'anthropic-beta':'oauth-2025-04-20'});
-  const windows=Object.entries(r).filter(([k,v])=>v&&typeof v.utilization==='number').map(([k,v])=>({label:k.replaceAll('_',' '),used:v.utilization,resetAt:v.resets_at?Date.parse(v.resets_at):null}));
-  return {vendor:'Claude',status:windows.length?'live':'unavailable',windows,sampledAt:Date.now()};
+  if (Number.isFinite(t.expiresAt) && t.expiresAt <= Date.now()) return auth('Claude', 'Open Claude Code to renew sign-in');
+  const r = await fetcher('https://api.anthropic.com/api/oauth/usage', t.accessToken, { 'anthropic-beta': 'oauth-2025-04-20' });
+  const windows = Object.entries(r).filter(([k, v]) => v && finitePct(v.utilization) != null).map(([k, v]) => ({ label: k.replaceAll('_', ' '), used: finitePct(v.utilization), resetAt: parseReset(v.resets_at) }));
+  return { vendor: 'Claude', status: windows.length ? 'live' : 'unavailable', windows, sampledAt: Date.now() };
 }
+// Live schema (checked 2026-10): usage{limit,used,remaining,resetTime},
+// limits[]{window{duration,timeUnit},detail{...}}, usages{limit_5h|limit_7d{used_ratio,reset_time}}.
 function kimiWindows(r) {
-  const rows=[...(r.usage?[{...r.usage,label:'Weekly'}]:[]),...(r.limits||[]).map(x=>({...x.detail,...(!x.detail?x:{}),label:x.name||x.title||(x.window?`${x.window.duration} ${x.window.timeUnit}`:'Limit')}))];
-  return rows.filter(v=>Number(v.limit)>0 && (v.used!=null||v.remaining!=null)).map(v=>({label:v.label,used:100*Number(v.used??(Number(v.limit)-Number(v.remaining)))/Number(v.limit),resetAt:v.resetTime||v.resetAt||v.reset_at?Date.parse(v.resetTime||v.resetAt||v.reset_at):v.resetIn?Date.now()+Number(v.resetIn)*1000:null}));
-}
-async function kimi() {
-  let token=null,expired=false;
-  for(const dir of ['.kimi-code','.kimi']) {const c=readJson(path.join(home,dir,'credentials/kimi-code.json'));if(c?.access_token){if(c.expires_at&&c.expires_at*1000<=Date.now()){expired=true;continue;}token=c.access_token;break;}}
-  if(!token) {
-    for(const dir of ['.kimi-code','.kimi']) {try{const text=fs.readFileSync(path.join(home,dir,'config.toml'),'utf8');const block=text.match(/\[providers\.[^\]]+\][\s\S]*?base_url\s*=\s*"https:\/\/api.kimi.com\/coding\/v1"[\s\S]*?(?=\n\[|$)/);token=block?.[0].match(/api_key\s*=\s*"([^"\n]+)"/)?.[1];if(token)break;}catch{}}
+  const out = [];
+  for (const [key, v] of Object.entries(r?.usages || {})) {
+    const ratio = Number(v?.used_ratio);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) continue;
+    out.push({ label: key.replace(/^limit_/, ''), used: ratio * 100, resetAt: parseReset(v.reset_time) });
   }
-  if(!token&&expired)return auth('Kimi','Open Kimi CLI to renew sign-in');
-  if(!token)throw Object.assign(new Error('missing'),{code:'ENOENT'});
-  const r=await fetchJson('https://api.kimi.com/coding/v1/usages',token);const windows=kimiWindows(r);
-  return {vendor:'Kimi',status:windows.length?'live':'unavailable',windows,sampledAt:Date.now()};
+  for (const x of r?.limits || []) {
+    const d = x?.detail || x;
+    const limit = Number(d?.limit), usedN = Number(d?.used), remaining = Number(d?.remaining);
+    if (!(limit > 0)) continue;
+    const used = Number.isFinite(usedN) ? usedN : Number.isFinite(remaining) ? limit - remaining : null;
+    if (used == null) continue;
+    const unit = String(x.window?.timeUnit || '').replace(/^TIME_UNIT_/, '').toLowerCase();
+    const dur = Number(x.window?.duration);
+    const durLabel = x.window ? (unit.startsWith('min') && dur >= 60 && dur % 60 === 0 ? `${dur / 60}h` : `${dur} ${unit || 'window'}`) : 'Limit';
+    out.push({ label: x.name || x.title || durLabel, used: finitePct(100 * used / limit) ?? 0, resetAt: parseReset(d.resetTime || d.resetAt || d.reset_at) });
+  }
+  const u = r?.usage;
+  if (u && Number(u.limit) > 0) {
+    const used = Number.isFinite(Number(u.used)) ? Number(u.used) : Number.isFinite(Number(u.remaining)) ? Number(u.limit) - Number(u.remaining) : null;
+    if (used != null) out.push({ label: 'Overall', used: finitePct(100 * used / Number(u.limit)) ?? 0, resetAt: parseReset(u.resetTime) });
+  }
+  return out.filter(w => Number.isFinite(w.used));
 }
-async function accounts() {
-  return Promise.all([['Codex',codex],['Claude',claude],['Kimi',kimi]].map(async([vendor,f])=>{try{return await f();}catch(e){if(isAuthError(e))return auth(vendor,vendor==='Codex'?'Open Codex and sign in again':'Open the CLI and sign in again');return {vendor,status:'unavailable',message:safeError(e),retryAfter:e.status===429?Math.max(300,Number(e.retryAfter)||0):null,windows:[]};}}));
+function kimiToken() {
+  if (process.env.KIMI_API_KEY) return { token: process.env.KIMI_API_KEY, via: 'env' };
+  try { const t = fs.readFileSync(path.join(home, '.kimix/token'), 'utf8').trim(); if (t) return { token: t, via: 'kimix' }; } catch {}
+  return null;
 }
-async function run(mode) {if(mode==='machine')return machine();if(mode==='accounts')return accounts();return {machine:await machine(),accounts:await accounts()};}
-module.exports={machine,accounts,run,kimiWindows};
-if(require.main===module)run(process.argv[2]||'all').then(x=>process.stdout.write(JSON.stringify(x)+'\n')).catch(()=>{process.stdout.write(JSON.stringify({status:'unavailable'})+'\n');process.exitCode=1;});
+async function kimi(deps = {}) {
+  const read = deps.readJson || readJson;
+  const fetcher = deps.fetchJson || fetchJson;
+  const tokenFor = deps.tokenFor || kimiToken;
+  const readFile = deps.readFile || ((p) => fs.readFileSync(p, 'utf8'));
+  let token = null, expired = false;
+  for (const dir of ['.kimi-code', '.kimi']) { const c = read(path.join(home, dir, 'credentials/kimi-code.json')); if (c?.access_token) { if (c.expires_at && c.expires_at * 1000 <= Date.now()) { expired = true; continue; } token = c.access_token; break; } }
+  // Native OAuth token expired: fall back to the Kimix API key (read locally, never logged).
+  if (!token) { const k = tokenFor(); if (k) token = k.token; }
+  if (!token) {
+    for (const dir of ['.kimi-code', '.kimi']) { try { const text = readFile(path.join(home, dir, 'config.toml')); const block = text.match(/\[providers\.[^\]]+\][\s\S]*?base_url\s*=\s*"https:\/\/api.kimi.com\/coding\/v1"[\s\S]*?(?=\n\[|$)/); token = block?.[0].match(/api_key\s*=\s*"([^"\n]+)"/)?.[1]; if (token) break; } catch {} }
+  }
+  if (!token && expired) return auth('Kimi', 'Open Kimi CLI to renew sign-in');
+  if (!token) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  const r = await fetcher('https://api.kimi.com/coding/v1/usages', token); const windows = kimiWindows(r);
+  return { vendor: 'Kimi', status: windows.length ? 'live' : 'unavailable', windows, sampledAt: Date.now() };
+}
+async function accounts(deps = {}) {
+  return Promise.all([['Codex', codex], ['Claude', claude], ['Kimi', kimi]].map(async ([vendor, f]) => { try { return await f(deps[vendor.toLowerCase()] || {}); } catch (e) { if (isAuthError(e)) return auth(vendor, vendor === 'Codex' ? 'Open Codex and sign in again' : 'Open the CLI and sign in again'); return { vendor, status: 'unavailable', message: safeError(e), retryAfter: e.status === 429 ? Math.max(300, Number(e.retryAfter) || 0) : null, windows: [] }; } }));
+}
+async function run(mode) { if (mode === 'machine') return machine(); if (mode === 'accounts') return accounts(); return { machine: await machine(), accounts: await accounts() }; }
+module.exports = { machine, accounts, run, kimiWindows, codexWindows, codex, claude, kimi };
+if (require.main === module) run(process.argv[2] || 'all').then(x => process.stdout.write(JSON.stringify(x) + '\n')).catch(() => { process.stdout.write(JSON.stringify({ status: 'unavailable' }) + '\n'); process.exitCode = 1; });

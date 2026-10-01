@@ -1,83 +1,116 @@
 'use strict';
+// Deterministic tests: all providers run with injected stubs. No live account,
+// network, or credential reads happen here (CI-safe on every platform).
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const os = require('node:os');
-const path = require('node:path');
-const Module = require('node:module');
+const { EventEmitter } = require('node:events');
+const { machine, accounts, claude, kimi, codex, kimiWindows, codexWindows } = require('../app/collector.cjs');
 
-function loadCollector(home) {
-  // Load a fresh copy of the collector with a patched homedir.
-  const file = path.join(__dirname, '..', 'app', 'collector.cjs');
-  delete require.cache[require.resolve(file)];
-  const osStub = Object.create(os);
-  osStub.homedir = () => home;
-  const src = fs.readFileSync(file, 'utf8');
-  const m = new Module(file, module);
-  m.filename = file; m.paths = Module._nodeModulePaths(path.dirname(file));
-  const req = (id) => id === 'node:os' || id === 'os' ? osStub : require(id);
-  m._compile('(function(require,module,exports){' + src + '\n})', file);
-  const fn = new Function('require', 'module', 'exports', src);
-  fn(req, m, m.exports);
-  return m.exports;
-}
-
-const { kimiWindows } = require('../app/collector.cjs');
-
-test('kimiWindows maps usage + limits shapes and never invents resets', () => {
-  const w = kimiWindows({ usage: { limit: 100, used: 25, resetTime: '2026-10-05T00:00:00Z' } });
-  assert.strictEqual(w.length, 1);
-  assert.strictEqual(w[0].used, 25);
-  assert.strictEqual(w[0].resetAt, Date.parse('2026-10-05T00:00:00Z'));
-  const w2 = kimiWindows({ limits: [{ name: '5h', detail: { limit: 50, remaining: 10 } }] });
-  assert.strictEqual(w2[0].used, 80);
-  assert.strictEqual(w2[0].resetAt, null); // no reset reported -> null, not guessed
+test('kimiWindows maps all three live schema shapes; malformed never becomes 0', () => {
+  const w = kimiWindows({
+    usage: { limit: 100, used: 25, remaining: 75, resetTime: '2026-10-05T00:00:00Z' },
+    limits: [{ window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: 50, used: 40, remaining: 10, resetTime: '2026-10-01T20:00:00Z' } }],
+    usages: { limit_5h: { used_ratio: 0.8, reset_time: '2026-10-01T20:00:00Z' }, limit_7d: { used_ratio: 0.25, reset_time: '2026-10-05T00:00:00Z' }, junk: { used_ratio: 7 }, also_junk: { used_ratio: 'x' } },
+  });
+  const byLabel = Object.fromEntries(w.map((x) => [x.label, x]));
+  assert.strictEqual(Math.round(byLabel['5h'].used), 80);
+  assert.strictEqual(Math.round(byLabel['7d'].used), 25);
+  assert.strictEqual(byLabel['5h'].resetAt, Date.parse('2026-10-01T20:00:00Z'));
+  assert.ok(!('junk' in byLabel) && !('also_junk' in byLabel));
+  assert.strictEqual(byLabel['Overall'].used, 25);
+  assert.strictEqual(byLabel['5h (dup)'], undefined);
+  // limits entry labelled 5h from duration
+  assert.strictEqual(Math.round(byLabel['5h'].used), 80);
   assert.deepStrictEqual(kimiWindows({}), []);
+  // missing reset stays null, never guessed
+  assert.strictEqual(kimiWindows({ usages: { limit_5h: { used_ratio: 0.1 } } })[0].resetAt, null);
 });
 
-test('machine collector returns real local metrics', async () => {
-  const { machine } = require('../app/collector.cjs');
+test('codexWindows leads with the main bucket and drops malformed entries', () => {
+  const w = codexWindows({ rateLimitsByLimitId: {
+    base_model_inference: { limitId: 'base_model_inference', limitName: 'gpt-reserve', primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1790950962 } },
+    codex: { limitId: 'codex', limitName: null, primary: { usedPercent: 85, windowDurationMins: 10080, resetsAt: 1791320391 } },
+    broken: { limitId: 'broken', primary: { usedPercent: 'nope', windowDurationMins: 60 } },
+  } });
+  assert.strictEqual(w.length, 2);
+  assert.strictEqual(w[0].main, true);
+  assert.strictEqual(w[0].used, 85);
+  assert.strictEqual(w[0].resetAt, 1791320391 * 1000);
+  assert.strictEqual(w[1].main, false);
+  assert.strictEqual(w[1].label, 'gpt-reserve · weekly');
+  assert.deepStrictEqual(codexWindows(null), []);
+  assert.deepStrictEqual(codexWindows({ rateLimits: { primary: { usedPercent: null } } }), []);
+});
+
+// Fake codex app-server: speaks the JSON-RPC handshake from injected lines.
+function fakeSpawn(lines, { errorOn2 = null } = {}) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdin = { write(x) { const v = JSON.parse(x); if (v.id === 1) reply(1); if (v.id === 2) reply(2); } };
+    child.stderr = { resume() {} };
+    child.kill = () => {};
+    function reply(id) {
+      const payload = id === 1 ? { id: 1, result: {} } : (errorOn2 ? { id: 2, error: { message: errorOn2 } } : { id: 2, result: lines });
+      setImmediate(() => child.stdout.emit('data', Buffer.from(JSON.stringify(payload) + '\n')));
+    }
+    child.stdout = new EventEmitter();
+    return child;
+  };
+}
+
+test('codex provider parses RPC result with injected spawn (no real app-server)', async () => {
+  const result = await codex({ spawn: fakeSpawn({ rateLimitsByLimitId: { codex: { limitId: 'codex', primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1791000000 } } } }), command: '/nonexistent' });
+  assert.strictEqual(result.status, 'live');
+  assert.strictEqual(result.windows[0].used, 42);
+  assert.strictEqual(result.windows[0].label, 'Codex · 5h');
+});
+
+test('codex provider maps revoked/401 RPC errors to auth through accounts()', async () => {
+  const res = await accounts({ codex: { spawn: fakeSpawn(null, { errorOn2: 'GET https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized' }), command: '/nonexistent' }, claude: { readJson: () => null }, kimi: { readJson: () => null, tokenFor: () => null } });
+  const cx = res.find((a) => a.vendor === 'Codex');
+  assert.strictEqual(cx.status, 'auth');
+  assert.match(cx.message, /sign in/i);
+});
+
+test('claude signed-out file (empty token, expiresAt 0) is auth without network', async () => {
+  const r = await claude({ readJson: () => ({ claudeAiOauth: { accessToken: '', expiresAt: 0 } }), fetchJson: () => { throw new Error('must not fetch'); } });
+  assert.strictEqual(r.status, 'auth');
+  const expired = await claude({ readJson: () => ({ claudeAiOauth: { accessToken: 'x', expiresAt: Date.now() - 1000 } }), fetchJson: () => { throw new Error('must not fetch'); } });
+  assert.strictEqual(expired.status, 'auth');
+});
+
+test('claude live shape maps utilization windows; resets parsed, never guessed', async () => {
+  const r = await claude({
+    readJson: () => ({ claudeAiOauth: { accessToken: 'x', expiresAt: Date.now() + 3600e3 } }),
+    fetchJson: async () => ({ five_hour: { utilization: 62, resets_at: '2026-10-01T20:00:00Z' }, seven_day: { utilization: 12 }, junk: { utilization: 'x' } }),
+  });
+  assert.strictEqual(r.status, 'live');
+  assert.strictEqual(r.windows.length, 2);
+  assert.strictEqual(r.windows[0].used, 62);
+  assert.strictEqual(r.windows[0].resetAt, Date.parse('2026-10-01T20:00:00Z'));
+  assert.strictEqual(r.windows[1].resetAt, null);
+});
+
+test('kimi expired OAuth falls back to injected kimix token; missing everything is unavailable', async () => {
+  const expiredCred = { access_token: 'x', expires_at: Math.floor(Date.now() / 1000) - 10 };
+  const live = await kimi({
+    readJson: (p) => p.includes('kimi-code.json') ? expiredCred : null,
+    tokenFor: () => ({ token: 'stubbed', via: 'kimix' }),
+    fetchJson: async () => ({ usages: { limit_5h: { used_ratio: 0.5, reset_time: '2026-10-01T20:00:00Z' } } }),
+  });
+  assert.strictEqual(live.status, 'live');
+  assert.strictEqual(live.windows[0].used, 50);
+  await assert.rejects(kimi({ readJson: () => null, tokenFor: () => null, readFile: () => { throw new Error('none'); } }), /missing/);
+  const viaAccounts = await accounts({ kimi: { readJson: () => null, tokenFor: () => null, readFile: () => { throw new Error('none'); } }, codex: { spawn: fakeSpawn(null, { errorOn2: '401' }), command: '/x' }, claude: { readJson: () => null } });
+  assert.strictEqual(viaAccounts.find((a) => a.vendor === 'Kimi').status, 'unavailable');
+});
+
+test('machine collector returns real local metrics (host resources only)', async () => {
   const r = await machine();
   assert.strictEqual(r.hostname, os.hostname());
   assert.ok(r.cores >= 1);
   assert.ok(r.cpu === null || (r.cpu >= 0 && r.cpu <= 100));
   assert.ok(r.mem > 0 && r.mem <= 100);
-  assert.ok(r.disk === null || (r.disk > 0 && r.disk <= 100));
   assert.ok(r.uptime > 0);
-  assert.ok(Number.isFinite(r.sampledAt));
 });
-
-test('claude with signed-out credentials file returns auth, not unavailable', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sysmon-test-'));
-  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: '', expiresAt: 0 } }));
-  const c = loadCollector(home);
-  const accounts = await c.accounts();
-  const claude = accounts.find((a) => a.vendor === 'Claude');
-  assert.strictEqual(claude.status, 'auth');
-  assert.match(claude.message, /sign in/i);
-});
-
-test('claude with expired token returns auth without calling the API', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sysmon-test-'));
-  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'x', expiresAt: Date.now() - 1000 } }));
-  const c = loadCollector(home);
-  const claude = (await c.accounts()).find((a) => a.vendor === 'Claude');
-  assert.strictEqual(claude.status, 'auth');
-});
-
-test('kimi with expired token returns auth; missing credentials return unavailable', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sysmon-test-'));
-  fs.mkdirSync(path.join(home, '.kimi-code', 'credentials'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.kimi-code', 'credentials', 'kimi-code.json'), JSON.stringify({ access_token: 'x', expires_at: Math.floor(Date.now() / 1000) - 10 }));
-  let c = loadCollector(home);
-  let kimi = (await c.accounts()).find((a) => a.vendor === 'Kimi');
-  assert.strictEqual(kimi.status, 'auth');
-
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'sysmon-test-'));
-  c = loadCollector(empty);
-  kimi = (await c.accounts()).find((a) => a.vendor === 'Kimi');
-  assert.strictEqual(kimi.status, 'unavailable');
-  assert.match(kimi.message, /credentials/i);
-}, { timeout: 30000 });

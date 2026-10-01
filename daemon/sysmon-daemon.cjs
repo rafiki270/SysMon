@@ -12,7 +12,9 @@ const { execFile } = require('node:child_process');
 const { attachServer } = require('./ws.cjs');
 
 const PORT = Number(process.env.SYSMON_DAEMON_PORT) || 7737;
-const HOST = process.env.SYSMON_DAEMON_HOST || '127.0.0.1';
+// Loopback only, always: the port must never be reachable from the LAN,
+// regardless of environment overrides. Access goes through an SSH tunnel.
+const HOST = '127.0.0.1';
 const INTERVAL = Math.max(1000, Number(process.env.SYSMON_DAEMON_INTERVAL) || 2500);
 const HISTORY_MS = 60000;
 

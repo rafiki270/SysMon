@@ -91,6 +91,8 @@ class WsConnection extends EventEmitter {
   }
   sendRaw(data, opcode) {
     if (this.closed) return;
+    // Slow reader protection: never queue unbounded output on the socket.
+    if (this.socket.writableLength > 512 * 1024) { this.close(); return; }
     try { this.socket.write(encodeFrame(data, { masked: this.masked, opcode })); } catch { this.close(); }
   }
   send(text) { this.sendRaw(text, 1); }
@@ -104,6 +106,9 @@ function attachServer(httpServer, onConnection, { path = '/' } = {}) {
   httpServer.on('upgrade', (req, socket) => {
     const key = req.headers['sec-websocket-key'];
     const url = req.url || '/';
+    // Browsers always send Origin; refusing them keeps local process data
+    // unreachable from unrelated websites. Our Node client sends no Origin.
+    if (req.headers.origin) { socket.destroy(); return; }
     if (!key || !url.split('?')[0].startsWith(path) || (req.headers.upgrade || '').toLowerCase() !== 'websocket') {
       socket.destroy(); return;
     }
@@ -126,6 +131,7 @@ function connect({ host = '127.0.0.1', port, path = '/', timeout = 10000, header
     const timer = setTimeout(() => fail(new Error('connect timeout')), timeout);
     const fail = (e) => { if (settled) return; settled = true; clearTimeout(timer); socket.destroy(); reject(e); };
     socket.on('error', fail);
+    socket.on('close', () => fail(new Error('connection closed during handshake')));
     socket.on('connect', () => {
       const extra = Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('');
       socket.write(

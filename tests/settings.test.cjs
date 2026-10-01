@@ -27,7 +27,7 @@ test('save/load roundtrip persists layout and displayId atomically', () => {
   saveSettings(file, { layout: 'numerals', displayId: 7 });
   assert.deepStrictEqual(loadSettings(file), { layout: 'numerals', displayId: 7 });
   assert.ok(!fs.existsSync(file + '.tmp'));
-  assert.strictEqual((fs.statSync(file).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.strictEqual((fs.statSync(file).mode & 0o777).toString(8), '600'); // POSIX-only; Windows stat reports 666
 });
 
 test('chooseDisplay prefers saved, then non-primary, then first', () => {

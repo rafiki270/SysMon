@@ -1,9 +1,11 @@
 #!/bin/sh
 # SysMon telemetry daemon installer (macOS launchd / Linux systemd --user).
 # Usage: sh install.sh [/path/to/node]
-# The daemon listens on 127.0.0.1 only; reach it through an SSH tunnel.
+# Copies the daemon to a durable location (~/.local/share/sysmon/daemon) so the
+# service survives worktree/branch changes. Loopback-only; reach via SSH tunnel.
 set -eu
-DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC="$(cd "$(dirname "$0")" && pwd)"
+DEST="$HOME/.local/share/sysmon/daemon"
 LABEL="com.sysmon.daemon"
 PORT="${SYSMON_DAEMON_PORT:-7737}"
 
@@ -18,6 +20,10 @@ NODE="$(find_node "${1:-}")"
 [ -x "$NODE" ] || { echo "No Node.js found; pass its path: sh install.sh /path/to/node" >&2; exit 1; }
 echo "Using node: $NODE"
 
+mkdir -p "$DEST"
+cp "$SRC/sysmon-daemon.cjs" "$SRC/ws.cjs" "$DEST/"
+echo "Daemon copied to durable location: $DEST"
+
 case "$(uname -s)" in
   Darwin)
     PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -28,7 +34,7 @@ case "$(uname -s)" in
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
-  <array><string>$NODE</string><string>$DIR/sysmon-daemon.cjs</string></array>
+  <array><string>$NODE</string><string>$DEST/sysmon-daemon.cjs</string></array>
   <key>EnvironmentVariables</key>
   <dict><key>SYSMON_DAEMON_PORT</key><string>$PORT</string></dict>
   <key>RunAtLoad</key><true/>
@@ -49,7 +55,7 @@ PLIST
 Description=SysMon telemetry daemon (loopback only)
 
 [Service]
-ExecStart=$NODE $DIR/sysmon-daemon.cjs
+ExecStart=$NODE $DEST/sysmon-daemon.cjs
 Environment=SYSMON_DAEMON_PORT=$PORT
 Restart=always
 RestartSec=3

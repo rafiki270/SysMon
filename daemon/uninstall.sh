@@ -1,5 +1,5 @@
 #!/bin/sh
-# Removes the SysMon telemetry daemon service (does not delete this directory).
+# Removes the SysMon telemetry daemon service and its durable runtime copy.
 set -eu
 LABEL="com.sysmon.daemon"
 case "$(uname -s)" in
@@ -17,3 +17,5 @@ case "$(uname -s)" in
     ;;
   *) echo "Unsupported platform: $(uname -s)" >&2; exit 1 ;;
 esac
+rm -rf "$HOME/.local/share/sysmon"
+echo "Removed ~/.local/share/sysmon"
