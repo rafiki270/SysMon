@@ -97,6 +97,8 @@ async function codex(deps = {}) {
     const finish = (err, result) => { if (finished) return; finished = true; clearTimeout(timer); try { child.kill(); } catch {} err ? reject(err) : resolve(result); };
     const timer = setTimeout(() => finish(new Error('timeout')), 25000);
     child.on('error', e => finish(e)); child.on('exit', () => finish(new Error('exited'))); child.stderr.resume();
+    // A missing/exiting CLI closes stdin; swallow EPIPE so it cannot crash the monitor.
+    child.stdin.on('error', () => {});
     const send = x => child.stdin.write(JSON.stringify(x) + '\n');
     child.stdout.on('data', chunk => {
       buf += chunk.toString(); if (buf.length > 2e6) return finish(new Error('oversized'));
@@ -149,7 +151,9 @@ function kimiWindows(r) {
     const q = quotaUsed(u);
     if (q) out.push({ label: 'Overall', used: q.usedPct, resetAt: parseReset(u.resetTime) });
   }
-  return out.filter(w => Number.isFinite(w.used));
+  // Same window can be reported by more than one schema shape; keep the first.
+  const seen = new Set();
+  return out.filter(w => Number.isFinite(w.used) && !seen.has(w.label) && seen.add(w.label));
 }
 function kimiToken() {
   if (process.env.KIMI_API_KEY) return { token: process.env.KIMI_API_KEY, via: 'env' };

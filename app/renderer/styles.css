@@ -173,6 +173,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 .nacct .used .unit { font-size: .45em; color: var(--dim); }
 .nacct .mini-bar { width: clamp(60px, 5.7vw, 110px); height: 8px; background: var(--line); }
 .nacct .mini-bar > div { height: 100%; transition: width .8s; }
+.nacct .extras { font-size: clamp(8px, .5vw + 4px, 10px); color: var(--mute); max-width: clamp(90px, 8vw, 160px); text-align: right; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* ---------- CI panel ---------- */
 .ci { display: flex; flex-direction: column; min-height: 0; }

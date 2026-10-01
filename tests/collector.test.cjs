@@ -85,7 +85,7 @@ test('codexWindows leads with the main bucket and drops malformed entries', () =
 function fakeSpawn(lines, { errorOn2 = null } = {}) {
   return () => {
     const child = new EventEmitter();
-    child.stdin = { write(x) { const v = JSON.parse(x); if (v.id === 1) reply(1); if (v.id === 2) reply(2); } };
+    child.stdin = { write(x) { const v = JSON.parse(x); if (v.id === 1) reply(1); if (v.id === 2) reply(2); }, on() {} };
     child.stderr = { resume() {} };
     child.kill = () => {};
     function reply(id) {

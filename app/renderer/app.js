@@ -389,7 +389,10 @@
     if (arc) { arc.setAttribute('stroke-dasharray', F.dashFor(canShow ? primary.used : null, 42)); arc.setAttribute('stroke', canShow ? F.colorFor(primary.used) : 'var(--mute)'); }
     const bar = f(card, 'usedBar');
     if (bar) { bar.style.width = `${canShow ? F.clamp(primary.used) : 0}%`; bar.style.background = canShow ? F.colorFor(primary.used) : 'var(--mute)'; }
-    setText(card, 'extras', canShow && extras.length ? extras.map((w) => `${w.label} ${Math.round(w.used)}%`).join(' · ') : '');
+    const extrasText = canShow && extras.length ? extras.map((w) => `${w.label} ${Math.round(w.used)}%`).join(' · ') : '';
+    setText(card, 'extras', extrasText);
+    const extrasEl = f(card, 'extras');
+    if (extrasEl) extrasEl.title = extrasText; // full quota list stays viewable when clamped
     const msg = f(card, 'msg');
     if (msg) {
       msg.textContent = '';
