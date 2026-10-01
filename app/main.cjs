@@ -3,9 +3,12 @@ const { app, BrowserWindow, ipcMain, screen, session, Menu, Tray, nativeImage, s
 const path = require('node:path');
 const fs = require('node:fs');
 const { Monitor } = require('./monitor.cjs');
+const { hosts } = require('./monitor.cjs');
+const { createClaudeAuth } = require('./auth.cjs');
 const { loadSettings, saveSettings, layouts, chooseDisplay } = require('./settings.cjs');
 
-let win, tray, monitor, grokWindow, settings, file, grokTimer, quitting = false;
+let win, tray, monitor, grokWindow, settings, file, grokTimer, claudeAuth, quitting = false;
+const claudeRefreshTimers = new Set();
 // Test mode (SYSMON_TEST=1): no real polling, no login items, isolated userData,
 // deterministic fixture states from SYSMON_FIXTURE. Used by Playwright flows.
 const TEST = process.env.SYSMON_TEST === '1';
@@ -146,9 +149,28 @@ app.whenReady().then(() => {
   handle('display', id => { if (!allDisplays().some(d => d.id === id)) throw new Error('Unknown display'); settings.displayId = id; placeWindow(); win.show(); return settings; });
   handle('connect-grok', () => connectGrok());
   handle('open-ci', url => { if (typeof url === 'string' && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(url)) return shell.openExternal(url); });
+  // Claude sign-in: narrow allowlist of host ids that own a Claude card.
+  // SYSMON_TEST records the allowlisted launch (host id + command) instead of
+  // spawning — tests never open a terminal, browser, or real auth flow.
+  const claudeLoginLog = [];
+  const recordSpawn = (command, args) => { claudeLoginLog.push({ command, args }); return { on(ev, cb) { if (ev === 'exit') setImmediate(() => cb(0)); return this; }, unref() {} }; };
+  claudeAuth = createClaudeAuth({
+    hosts: hosts.map(h => ({ id: h.id, os: h.os, ssh: h.ssh, local: h.id === monitor.localId })),
+    claudeHosts: monitor.state.accounts.filter(a => a.vendor === 'Claude').map(a => a.host),
+    ...(TEST ? { spawnImpl: recordSpawn, writeFile: async (p, content) => { claudeLoginLog.push({ script: p, content }); } } : {}),
+    onLaunched: TEST ? null : hostId => {
+      // Prompt quota refresh once the user has had time to finish OAuth.
+      for (const ms of [20000, 60000, 120000]) {
+        const t = setTimeout(() => { claudeRefreshTimers.delete(t); monitor.refreshAccounts(hostId); }, ms);
+        claudeRefreshTimers.add(t);
+      }
+    },
+  });
+  handle('connect-claude', hostId => claudeAuth.connect(hostId));
   if (TEST) {
     handle('test:displays', (list, opts) => { displayStub = list; if (opts?.reset) { settings.displayId = null; saveSettings(file, settings); } placeWindow(); return allDisplays().map(d => d.id); });
     handle('test:real-displays', () => { displayStub = null; placeWindow(); return true; });
+    handle('test:claude-logins', () => claudeLoginLog);
   }
   monitor.on('update', s => { if (!win.isDestroyed()) win.webContents.send('update', s); });
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
@@ -180,5 +202,5 @@ app.whenReady().then(() => {
     applyFixture(process.env.SYSMON_FIXTURE);
   }
 });
-app.on('before-quit', () => { quitting = true; monitor?.stop(); clearTimeout(grokTimer); });
+app.on('before-quit', () => { quitting = true; monitor?.stop(); clearTimeout(grokTimer); for (const t of claudeRefreshTimers) clearTimeout(t); claudeRefreshTimers.clear(); });
 app.on('window-all-closed', () => {});

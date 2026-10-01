@@ -291,7 +291,11 @@
     const machines = el('section', 'bars-machines');
     for (const m of state.machines) machines.append(machineColBars(m));
     const accounts = el('section', 'bars-accounts');
-    for (const a of state.accounts) accounts.append(accountCardBars(a));
+    // Two vendor-paired rows under the machine columns: row 1 Codex/Codex/Kimi,
+    // row 2 Claude/Claude/Grok, each card beneath its owning machine column.
+    const rank = { 'minis-Codex': 0, 'dictator-Codex': 1, 'dictator-Kimi': 2, 'minis-Claude': 3, 'dictator-Claude': 4, grok: 5 };
+    const ordered = [...state.accounts].sort((x, y) => (rank[x.id] ?? 99) - (rank[y.id] ?? 99));
+    for (const a of ordered) accounts.append(accountCardBars(a));
     left.append(machines, accounts);
     board.append(left, ciPanel(true));
   }
@@ -371,6 +375,26 @@
     return (parts[1] || parts[0]).trim();
   }
 
+  function claudeSigninButton(a, msg) {
+    const b = el('button', 'link', a.status === 'auth' ? 'Sign in' : 'Renew sign-in');
+    b.dataset.testid = `connect-claude-${a.host}`;
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      const show = (text, retry) => {
+        msg.textContent = text;
+        if (retry) { msg.append(b); b.disabled = false; }
+      };
+      try {
+        const r = await window.sysmon.connectClaude(a.host);
+        if (r && r.ok === false) { show(r.message || 'Sign-in could not be started', true); return; }
+        show((r && r.message) || 'Sign-in opened — finish it in the terminal window', false);
+      } catch {
+        show('Sign-in could not be started', true);
+      }
+    });
+    return b;
+  }
+
   function patchAccount(a) {
     const card = board.querySelector(`[data-a="${a.id}"]`);
     if (!card) return;
@@ -402,6 +426,9 @@
         b.dataset.testid = 'connect-grok';
         b.addEventListener('click', () => window.sysmon.connectGrok());
         msg.append(b);
+      }
+      if (a.vendor === 'Claude' && (a.status === 'auth' || a.status === 'stale')) {
+        msg.append(claudeSigninButton(a, msg));
       }
     }
     // reset countdown patched by tick()

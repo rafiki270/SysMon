@@ -56,7 +56,7 @@ dictator, Grok (website subscription).
 - **Claude** — OAuth usage endpoint using the CLI's own stored credentials
   (file, then keychain fallback on macOS). Refresh is owned by the CLI; the
   app never rotates shared tokens. Expired credentials surface as an explicit
-  **auth** state.
+  **auth** state with a working **Sign in** control (see below).
 - **Kimi** — `GET https://api.kimi.com/coding/v1/usages` (the endpoint the
   public Kimi CLI uses). Token order: valid native CLI OAuth credentials,
   then `KIMI_API_KEY`, then the local Kimix API key (`~/.kimix/token`), then
@@ -77,6 +77,31 @@ dictator, Grok (website subscription).
 
 Credentials are read locally and never logged, printed, or sent to the
 renderer beyond derived quota numbers.
+
+## Claude sign-in
+
+Both Claude cards carry a functional **Sign in** (`auth`) / **Renew sign-in**
+(`stale`) control. Clicking it renews the *owning machine's* Claude Code
+subscription session through the official CLI — `claude auth login
+--claudeai`, the CLI's default Claude.ai subscription OAuth flow (verified
+against `claude auth login --help`; the `--console` Anthropic Console
+API-billing flow is never used) — inside a platform-appropriate user-visible
+terminal window:
+
+- **Owning host is local** — the CLI runs directly: Terminal.app via
+  AppleScript on macOS, a `cmd` window on Windows, the first available
+  terminal emulator on Linux.
+- **Owning host is remote** — an interactive `ssh -t <host>` session runs the
+  CLI on the remote machine inside a local terminal window, so the OAuth
+  browser/code step completes against the remote home directory (credentials
+  file / keychain). No tokens ever cross to the app.
+
+The CLI owns the entire OAuth flow and credential store; the app never reads,
+prints, or logs tokens. Duplicate clicks never spawn a second login (a
+per-host cooldown reports "already open" instead), a failed terminal launch
+is reported on the card, and the host's quota is re-read promptly (at ~20 s,
+60 s and 120 s) once sign-in has had time to complete. The IPC handler only
+accepts the narrow allowlist of host ids that own a Claude card.
 
 ## CI panel
 
