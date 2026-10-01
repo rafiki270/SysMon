@@ -16,6 +16,20 @@
     return 'var(--accent)';
   }
 
+  // Quota cards headline remaining quota, so scarcity colors invert the
+  // utilization thresholds: plenty left stays green, little left goes red.
+  function remainingColor(left) {
+    if (left == null || !Number.isFinite(left)) return 'var(--mute)';
+    if (left <= 10) return 'var(--crit)';
+    if (left <= 25) return 'var(--warn)';
+    return 'var(--accent)';
+  }
+
+  // Percent remaining for a quota window; missing usage stays missing.
+  function remaining(w) {
+    return w && Number.isFinite(w.used) ? clamp(100 - w.used) : null;
+  }
+
   // Countdown like the handover: "2h 14m", "37m 05s", "5d 2h", "now".
   function fmtCountdown(ms) {
     if (ms == null || !Number.isFinite(ms)) return null;
@@ -75,14 +89,29 @@
     return 'offline';
   }
 
-  // Pick the primary window: the provider's main bucket when flagged,
-  // otherwise the most used one; extras shown as secondary lines.
+  // Weekly-shaped windows as named by the providers: Codex "· weekly",
+  // Kimi "· weekly"/compat "7d", Claude "seven day" (and its *_sonnet etc.
+  // variants). Label-based, so renamed buckets are still recognized.
+  function isWeeklyWindow(label) {
+    return /weekly|seven[\s_-]?day|\b7\s?d\b/i.test(String(label || ''));
+  }
+
+  // Among weekly windows the provider's overall bucket headlines; model-
+  // specific weekly sub-limits ("seven day sonnet", "… opus") are extras.
+  function weeklyTier(w) {
+    if (!isWeeklyWindow(w.label)) return 0;
+    return /sonnet|opus|haiku/i.test(String(w.label)) ? 1 : 2;
+  }
+
+  // Pick the primary window: the weekly quota always headlines; shorter
+  // provider windows (5h etc.) stay secondary even when flagged main or
+  // more consumed. Ties fall back to the main flag, then most used.
   function primaryWindow(windows) {
     const list = (windows || []).filter((w) => Number.isFinite(w.used));
     if (!list.length) return { primary: null, extras: [] };
-    const sorted = list.slice().sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0) || b.used - a.used);
+    const sorted = list.slice().sort((a, b) => weeklyTier(b) - weeklyTier(a) || (b.main ? 1 : 0) - (a.main ? 1 : 0) || b.used - a.used);
     return { primary: sorted[0], extras: sorted.slice(1) };
   }
 
-  return { clamp, colorFor, fmtCountdown, fmtUptime, fmtAgo, fmtGB, sparkPoints, dashFor, pct, boardStatus, primaryWindow };
+  return { clamp, colorFor, remainingColor, remaining, fmtCountdown, fmtUptime, fmtAgo, fmtGB, sparkPoints, dashFor, pct, boardStatus, isWeeklyWindow, weeklyTier, primaryWindow };
 });

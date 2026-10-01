@@ -128,6 +128,9 @@ async function claude(deps = {}) {
 }
 // Live schema (checked 2026-10): usage{limit,used,remaining,resetTime},
 // limits[]{window{duration,timeUnit},detail{...}}, usages{limit_5h|limit_7d{used_ratio,reset_time}}.
+// The official Kimi CLI labels the top-level `usage` block "Weekly limit"
+// and renders it as remaining/"% left" — it is the weekly headline, kept
+// with its own reported reset and preferred over the compatibility 7d mirror.
 function kimiWindows(r) {
   const out = [];
   for (const x of r?.limits || []) {
@@ -142,7 +145,7 @@ function kimiWindows(r) {
   const u = r?.usage;
   if (u) {
     const q = quotaUsed(u);
-    if (q) out.push({ label: 'Overall', used: q.usedPct, resetAt: parseReset(u.resetTime) });
+    if (q) out.push({ label: 'Kimi · weekly', used: q.usedPct, resetAt: parseReset(u.resetTime), main: true });
   }
   for (const [key, v] of Object.entries(r?.usages || {})) {
     const raw = v?.used_ratio;

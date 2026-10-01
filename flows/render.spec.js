@@ -71,11 +71,11 @@ test('no fake zeros: unavailable values render as em-dash, real zero stays 0', a
   const { app, page, errors } = await launch(baseFixture());
   try {
     const minis = page.locator('[data-a="minis-Codex"]').first();
-    await expect(minis).toContainText('100'); // real live value
-    await expect(minis).toContainText('gpt-reserve · weekly 0%'); // real zero preserved
+    await expect(minis.locator('[data-f="usedN"]')).toHaveText('0% left'); // fully used weekly quota
+    await expect(minis).toContainText('gpt-reserve · weekly 100% left'); // real zero used = everything left
     const claude = page.locator('[data-a="minis-Claude"]').first();
     await expect(claude).toContainText('—'); // auth: no invented percentage
-    await expect(claude).not.toContainText('0%');
+    await expect(claude).not.toContainText('% left');
     const umac = page.locator('[data-m="umac"]').first();
     await expect(umac).toContainText('offline');
     expect(errors).toEqual([]);

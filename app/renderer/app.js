@@ -189,7 +189,7 @@
     mid.append(g);
     const info = el('div');
     const used = el('div', 'used v', '—'); used.dataset.f = 'usedN';
-    used.append(el('span', 'unit', '%'));
+    used.append(el('span', 'unit', '% left'));
     info.append(used);
     info.append(mark(el('div', 'of', ''), 'win'));
     info.append(mark(el('div', 'extras', ''), 'extras'));
@@ -212,7 +212,7 @@
     top.append(mark(el('span', 'win', ''), 'win'));
     card.append(top);
     const used = el('div', 'used v', '—'); used.dataset.f = 'usedN';
-    used.append(el('span', 'unit', '%'));
+    used.append(el('span', 'unit', '% left'));
     card.append(used);
     const bar = el('div', 'bar'); const fill = el('div'); fill.dataset.f = 'usedBar'; bar.append(fill); card.append(bar);
     card.append(mark(el('div', 'extras', ''), 'extras'));
@@ -237,7 +237,7 @@
     card.append(left);
     const right = el('div', 'right');
     const used = el('div', 'used v', '—'); used.dataset.f = 'usedN';
-    used.append(el('span', 'unit', '%'));
+    used.append(el('span', 'unit', '% left'));
     right.append(used);
     const bar = el('div', 'mini-bar'); const fill = el('div'); fill.dataset.f = 'usedBar'; bar.append(fill); right.append(bar);
     right.append(mark(el('div', 'extras', ''), 'extras'));
@@ -402,18 +402,22 @@
     patchBadge(card, a.status, a);
     const { primary, extras } = F.primaryWindow(a.windows);
     const canShow = primary && (a.status === 'live' || a.status === 'stale');
+    // Cards headline remaining quota ("N% left"); bars/gauges fill with what
+    // is left and scarcity colors invert (green plenty, red little). Raw
+    // `used` stays untouched in state for MCP consumers.
+    const left = canShow ? F.remaining(primary) : null;
     const usedN = f(card, 'usedN');
     if (usedN) {
-      usedN.textContent = canShow ? `${Math.round(primary.used)}` : '—';
-      usedN.append(el('span', 'unit', '%'));
-      usedN.style.color = canShow ? F.colorFor(primary.used) : 'var(--mute)';
+      usedN.textContent = left == null ? '—' : `${Math.round(left)}`;
+      if (left != null) usedN.append(el('span', 'unit', '% left'));
+      usedN.style.color = left == null ? 'var(--mute)' : F.remainingColor(left);
     }
     setText(card, 'win', canShow ? (layout === 'radial' ? `of ${windowShort(primary.label)} window` : windowShort(primary.label)) : '');
     const arc = f(card, 'arc');
-    if (arc) { arc.setAttribute('stroke-dasharray', F.dashFor(canShow ? primary.used : null, 42)); arc.setAttribute('stroke', canShow ? F.colorFor(primary.used) : 'var(--mute)'); }
+    if (arc) { arc.setAttribute('stroke-dasharray', F.dashFor(left, 42)); arc.setAttribute('stroke', left == null ? 'var(--mute)' : F.remainingColor(left)); }
     const bar = f(card, 'usedBar');
-    if (bar) { bar.style.width = `${canShow ? F.clamp(primary.used) : 0}%`; bar.style.background = canShow ? F.colorFor(primary.used) : 'var(--mute)'; }
-    const extrasText = canShow && extras.length ? extras.map((w) => `${w.label} ${Math.round(w.used)}%`).join(' · ') : '';
+    if (bar) { bar.style.width = `${left ?? 0}%`; bar.style.background = left == null ? 'var(--mute)' : F.remainingColor(left); }
+    const extrasText = canShow && extras.length ? extras.map((w) => `${w.label} ${Math.round(F.remaining(w))}% left`).join(' · ') : '';
     setText(card, 'extras', extrasText);
     const extrasEl = f(card, 'extras');
     if (extrasEl) extrasEl.title = extrasText; // full quota list stays viewable when clamped
