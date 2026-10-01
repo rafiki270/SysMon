@@ -13,7 +13,7 @@ const collector = require('./collector.cjs');
 const { HostLink } = require('./link.cjs');
 
 const hosts = [
-  { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', ssh: 'dictator@192.168.1.215', fallback: null, localPort: 17378 },
+  { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', ssh: 'ondre@Minis.local', fallback: 'ondre@192.168.1.215', localPort: 17378 },
   { id: 'dictator', name: 'dictator', os: 'MAC', address: '192.168.1.229', ssh: 'dictator@dictator.local', fallback: 'dictator@192.168.1.229', localPort: 17379 },
   { id: 'umac', name: 'umac', os: 'LINUX', address: '192.168.1.192', ssh: 'umac@umac.local', fallback: 'umac@192.168.1.192', localPort: 17380 },
 ];

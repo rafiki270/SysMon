@@ -1,43 +1,81 @@
 'use strict';
-// Secondary display selection and hotplug, using the test display stub.
-// Real desktop: primary 1920x1080 (id 3840750596), secondary 1920x720 above.
+// Secondary display selection and hotplug. Fully host-portable: the primary
+// stub reuses the host's real primary display id, the secondary is synthetic.
+// Window bounds are clamped by the OS to the physical screen (macOS CI runner
+// shrinks a 1080p request to ~677), so placement is asserted via the persisted
+// settings.displayId and size only when the host screen can actually fit it.
+// chooseDisplay preference order is covered by unit tests in settings.test.cjs.
 const { test, expect } = require('@playwright/test');
 const { launch, baseFixture } = require('./helpers.cjs');
 
-const PRIMARY = { id: 3840750596, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, size: { width: 1920, height: 1080 } };
-const SECONDARY = { id: 1554589279, bounds: { x: 0, y: -720, width: 1920, height: 720 }, size: { width: 1920, height: 720 } };
+const SYNTH_SECONDARY_ID = 990000720;
+
+async function hostScreen(app) {
+  return app.evaluate(({ screen }) => ({ primaryId: screen.getPrimaryDisplay().id, size: screen.getPrimaryDisplay().size }));
+}
 
 async function windowBounds(app) {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
 }
 
-test('selects the secondary display and follows hotplug removal', async () => {
+test('secondary display is the default target, explicit selection and hotplug follow', async () => {
   const { app, page, errors } = await launch(baseFixture());
   try {
-    await page.evaluate((list) => window.sysmon.testDisplays(list), [PRIMARY, SECONDARY]);
+    const host = await hostScreen(app);
+    const primary = { id: host.primaryId, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, size: { width: 1920, height: 1080 } };
+    const secondary = { id: SYNTH_SECONDARY_ID, bounds: { x: 0, y: -720, width: 1920, height: 720 }, size: { width: 1920, height: 720 } };
+
+    // Default (no saved choice): the non-primary display wins.
+    await page.evaluate((list) => window.sysmon.testDisplays(list), [primary, secondary]);
+    let settings = await page.evaluate(() => window.sysmon.settings());
+    expect(settings.displayId).toBe(SYNTH_SECONDARY_ID);
     let bounds = await windowBounds(app);
-    expect(bounds.width).toBe(1920);
-    expect(bounds.height).toBe(1080); // first non-primary in stub order is primary-like here; explicit select next
+    if (host.size.height >= 720) expect(bounds.height).toBe(720);
 
-    await page.evaluate((id) => window.sysmon.selectDisplay(id), SECONDARY.id);
+    // Explicit selection of the primary display persists.
+    await page.evaluate((id) => window.sysmon.selectDisplay(id), primary.id);
+    settings = await page.evaluate(() => window.sysmon.settings());
+    expect(settings.displayId).toBe(primary.id);
     bounds = await windowBounds(app);
-    // macOS clamps off-screen y coordinates; size is what proves placement.
-    expect(bounds).toMatchObject({ width: 1920, height: 720 });
-    const settings = await page.evaluate(() => window.sysmon.settings());
-    expect(settings.displayId).toBe(SECONDARY.id);
+    if (host.size.height >= 1080) expect(bounds.height).toBe(1080);
 
-    // Board must fit six accounts + three machines at the real 720p geometry.
+    // Explicit selection back to the 720p secondary persists too.
+    await page.evaluate((id) => window.sysmon.selectDisplay(id), secondary.id);
+    settings = await page.evaluate(() => window.sysmon.settings());
+    expect(settings.displayId).toBe(SYNTH_SECONDARY_ID);
+
+    // Hotplug removal: saved display gone -> land on the remaining display.
+    await page.evaluate((list) => window.sysmon.testDisplays(list), [primary]);
+    settings = await page.evaluate(() => window.sysmon.settings());
+    expect(settings.displayId).toBe(primary.id);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('board fits six account cards and three machines within the actual viewport', async () => {
+  const { app, page, errors } = await launch(baseFixture());
+  try {
+    // Ask for the real secondary-monitor geometry; the OS may clamp smaller.
     await page.setViewportSize({ width: 1920, height: 720 });
-    await expect(page.locator('[data-a]')).toHaveCount(6);
-    for (const id of ['minis-Codex', 'minis-Claude', 'dictator-Codex', 'dictator-Claude', 'dictator-Kimi', 'grok']) {
-      const box = await page.locator(`[data-a="${id}"]`).first().boundingBox();
-      expect(box.y + box.height).toBeLessThanOrEqual(721);
+    const view = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+    for (const layout of ['radial', 'bars', 'numerals']) {
+      await page.click(`[data-testid="layout-${layout}"]`);
+      await expect(page.locator('[data-a]')).toHaveCount(6);
+      await expect(page.locator('[data-m]')).toHaveCount(3);
+      const offenders = await page.evaluate(() => {
+        const bad = [];
+        for (const e of document.querySelectorAll('[data-a], [data-m], .ci, .hdr, .ci-hdr')) {
+          const r = e.getBoundingClientRect();
+          if (r.right > window.innerWidth + 1 || r.bottom > window.innerHeight + 1 || r.left < -1 || r.top < -1) {
+            bad.push(`${e.dataset.a || e.dataset.m || e.className} ${Math.round(r.right)}x${Math.round(r.bottom)}`);
+          }
+        }
+        return bad;
+      });
+      expect(offenders, `layout ${layout} at ${view.w}x${view.h}`).toEqual([]);
     }
-
-    // Hotplug: secondary disappears, window must land on the remaining display.
-    await page.evaluate((list) => window.sysmon.testDisplays(list), [PRIMARY]);
-    bounds = await windowBounds(app);
-    expect(bounds).toMatchObject({ width: 1920, height: 1080 });
     expect(errors).toEqual([]);
   } finally {
     await app.close();

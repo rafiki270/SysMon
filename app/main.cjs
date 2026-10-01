@@ -11,6 +11,9 @@ let win, tray, monitor, grokWindow, settings, file, grokTimer, quitting = false;
 const TEST = process.env.SYSMON_TEST === '1';
 let displayStub = null; // test-only override for hotplug simulation
 
+// Test userData must be set before the single-instance lock: the lock lives in
+// userData, so tests could otherwise collide with an installed app instance.
+if (TEST && process.env.SYSMON_USERDATA) app.setPath('userData', process.env.SYSMON_USERDATA);
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { win?.show(); win?.focus(); });
 
@@ -124,7 +127,6 @@ function applyFixture(fixtureFile) {
 }
 
 app.whenReady().then(() => {
-  if (TEST && process.env.SYSMON_USERDATA) app.setPath('userData', process.env.SYSMON_USERDATA);
   file = path.join(app.getPath('userData'), 'settings.json');
   const firstRun = !fs.existsSync(file);
   settings = loadSettings(file);
