@@ -27,6 +27,29 @@ test('kimiWindows maps all three live schema shapes; malformed never becomes 0',
   assert.strictEqual(kimiWindows({ usages: { limit_5h: { used_ratio: 0.1 } } })[0].resetAt, null);
 });
 
+test('kimiWindows prefers authoritative detailed limits over conflicting compat ratios', () => {
+  // Exact conflict observed live: usages.limit_5h.used_ratio is 0 while the
+  // detailed limits entry for the same 5h window reports 24% used.
+  const detailReset = '2026-10-01T23:00:00Z';
+  const w = kimiWindows({
+    usage: { limit: 500, used: 55, remaining: 445, resetTime: '2026-10-08T00:00:00Z' },
+    limits: [
+      { name: '5h', window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: 100, used: 24, remaining: 76, resetTime: detailReset } },
+      { name: '7d', window: { duration: 7, timeUnit: 'TIME_UNIT_DAY' }, detail: { limit: 200, used: 0, remaining: 200, resetTime: '2026-10-07T00:00:00Z' } },
+    ],
+    usages: { limit_5h: { used_ratio: 0, reset_time: '2026-10-01T20:00:00Z' }, limit_7d: { used_ratio: 0, reset_time: '2026-10-07T00:00:00Z' } },
+  });
+  const byLabel = Object.fromEntries(w.map((x) => [x.label, x]));
+  // Main/primary window is the detailed 5h quota at 24%, never the bogus 0.
+  assert.strictEqual(w[0].label, '5h');
+  assert.strictEqual(w[0].used, 24);
+  assert.strictEqual(w[0].resetAt, Date.parse(detailReset)); // reset of the selected detailed window
+  assert.strictEqual(byLabel['5h'].used, 24);
+  assert.strictEqual(byLabel['5h'].resetAt, Date.parse(detailReset));
+  assert.strictEqual(byLabel['7d'].used, 0); // genuine 0 stays 0
+  assert.strictEqual(byLabel['Overall'].used, 11);
+});
+
 test('kimiWindows drops null/empty/boolean ratios instead of coercing to 0', () => {
   const w = kimiWindows({ usages: {
     a: { used_ratio: null }, b: { used_ratio: '' }, c: { used_ratio: true }, d: { used_ratio: 0 },
