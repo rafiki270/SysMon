@@ -7,12 +7,15 @@
   "main": "app/main.cjs",
   "scripts": {
     "start": "electron .",
+    "build:icons": "node scripts/build-icons.cjs",
     "test": "node --test tests/*.test.cjs",
     "test:flows": "playwright test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
   "devDependencies": {
+    "@fortawesome/free-brands-svg-icons": "7.3.1",
+    "@fortawesome/free-solid-svg-icons": "7.3.1",
     "@playwright/test": "1.63.0",
     "electron": "44.5.1",
     "electron-builder": "26.15.3"

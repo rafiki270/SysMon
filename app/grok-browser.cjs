@@ -57,7 +57,6 @@ function browserCandidates(platform, env = process.env) {
   if (platform === 'darwin') {
     return [
       { name: 'Google Chrome', command: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
-      { name: 'Microsoft Edge', command: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge' },
       { name: 'Chromium', command: '/Applications/Chromium.app/Contents/MacOS/Chromium' },
     ];
   }
@@ -65,15 +64,13 @@ function browserCandidates(platform, env = process.env) {
     const pf = env.ProgramFiles || 'C:\\Program Files';
     const pf86 = env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     const list = [
-      { name: 'Microsoft Edge', command: path.join(pf86, 'Microsoft', 'Edge', 'Application', 'msedge.exe') },
-      { name: 'Microsoft Edge', command: path.join(pf, 'Microsoft', 'Edge', 'Application', 'msedge.exe') },
       { name: 'Google Chrome', command: path.join(pf, 'Google', 'Chrome', 'Application', 'chrome.exe') },
       { name: 'Google Chrome', command: path.join(pf86, 'Google', 'Chrome', 'Application', 'chrome.exe') },
     ];
     if (env.LOCALAPPDATA) list.push({ name: 'Google Chrome', command: path.join(env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe') });
     return list;
   }
-  return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge']
+  return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']
     .map((bin) => ({ name: bin, command: bin, onPath: true }));
 }
 
@@ -128,17 +125,26 @@ function toFinite(value) {
 
 // Website quota shape (private/undocumented, best-effort). Returns null on
 // anything unexpected — malformed values are dropped, never coerced.
-function parseRateLimits(body) {
+function parseRateLimits(body, sampledAt = Date.now()) {
   let r;
   try { r = typeof body === 'string' ? JSON.parse(body) : body; } catch { return null; }
   if (!r || typeof r !== 'object') return null;
-  const limit = toFinite(r.totalRequests);
+  const limit = toFinite(r.totalQueries ?? r.totalRequests);
   const remaining = toFinite(r.remainingQueries ?? r.remainingRequests);
   if (limit == null || limit <= 0) return null;
   if (remaining == null || remaining < 0 || remaining > limit) return null;
   let resetAt = null;
-  if (r.resetTime) { const t = Date.parse(r.resetTime); if (Number.isFinite(t)) resetAt = t; }
-  else if (r.resetAt != null) { const t = toFinite(r.resetAt); if (t != null) resetAt = t * 1000; }
+  const absolute = r.resetTime ?? r.resetAt;
+  if (absolute != null) {
+    const numeric = toFinite(absolute);
+    const t = numeric == null ? Date.parse(absolute) : numeric > 1e12 ? numeric : numeric * 1000;
+    if (Number.isFinite(t) && t > 0) resetAt = t;
+  } else {
+    // waitTimeSeconds is a reset delay; windowSizeSeconds is only the bucket
+    // duration and cannot tell us where the user is within that window.
+    const wait = toFinite(r.waitTimeSeconds);
+    if (wait != null && wait > 0) resetAt = sampledAt + wait * 1000;
+  }
   return { limit, remaining, resetAt }; // resetAt may stay null: never invented
 }
 
@@ -494,7 +500,7 @@ function createGrokBrowser({
 
       const browser = findBrowser({ platform, env, existsSync, which });
       if (!browser) {
-        const message = 'No supported browser found — install Chrome, Edge, or Chromium to connect Grok';
+        const message = 'No supported browser found — install Google Chrome to connect Grok';
         onState({ status: 'unavailable', message, windows: [] });
         return { ok: false, message };
       }

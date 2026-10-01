@@ -163,6 +163,13 @@ test('origin helpers: URL.origin equality, never startsWith', () => {
 });
 
 test('parseRateLimits: strict quantities, remaining <= limit, reset only when reported', () => {
+  const sample = { windowSizeSeconds: 7200, remainingQueries: 2, totalQueries: 2, lowEffortRateLimits: null, highEffortRateLimits: null };
+  assert.deepStrictEqual(parseRateLimits(sample), { limit: 2, remaining: 2, resetAt: null });
+  assert.deepStrictEqual(parseRateLimits({ ...sample, remainingQueries: 0 }), { limit: 2, remaining: 0, resetAt: null });
+  assert.strictEqual(parseRateLimits({ ...sample, totalQueries: false }), null);
+  assert.strictEqual(parseRateLimits({ ...sample, remainingQueries: 3 }), null);
+  assert.strictEqual(parseRateLimits({ ...sample, waitTimeSeconds: 60 }, 1790000000000).resetAt, 1790000060000);
+  assert.strictEqual(parseRateLimits({ ...sample, resetAt: 1790000000000 }).resetAt, 1790000000000);
   assert.deepStrictEqual(
     parseRateLimits(JSON.stringify({ totalRequests: 100, remainingQueries: 40 })),
     { limit: 100, remaining: 40, resetAt: null },
@@ -244,7 +251,7 @@ test('connect reports a missing browser truthfully and never installs one', asyn
   assert.match(r.message, /No supported browser found/);
   assert.strictEqual(log.filter((e) => e.args).length, 0, 'no spawn attempted');
   assert.strictEqual(states.at(-1).status, 'unavailable');
-  assert.match(states.at(-1).message, /install Chrome, Edge, or Chromium/);
+  assert.match(states.at(-1).message, /install Google Chrome/);
 });
 
 test('connect failure after spawn is explicit, renderer-visible, and token-free', async () => {
@@ -469,4 +476,12 @@ test('Cdp: peer close marks the connection closed; oversized frames dropped; ids
   c.ws.onclose();
   assert.strictEqual(c.closed, true, 'peer close flips readiness');
   await assert.rejects(() => c.call('X'), /closed/);
+});
+
+test('Grok uses Chrome on Windows even when Edge is installed', () => {
+  const chrome = findBrowser({platform:'win32', existsSync:()=>true});
+  assert.strictEqual(chrome.name, 'Google Chrome');
+  assert.match(chrome.command, /chrome\.exe$/i);
+  assert.strictEqual(findBrowser({platform:'win32', existsSync:p=>/msedge/i.test(p)}), null);
+  for (const platform of ['win32','darwin','linux']) assert.ok(browserCandidates(platform).every(c=>!/edge/i.test(c.command)));
 });

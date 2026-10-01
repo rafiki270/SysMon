@@ -144,7 +144,7 @@ app.whenReady().then(() => {
     return { on(ev, cb) { if (ev === 'exit') setImmediate(() => cb(1)); if (ev === 'error') return undefined; return this; }, kill() {}, unref() {} };
   };
   grokAuth = createGrokBrowser({
-    profileDir: path.join(app.getPath('userData'), 'grok-browser-profile'),
+    profileDir: path.join(app.getPath('userData'), 'grok-chrome-profile'),
     onState: r => monitor.setGrok({ vendor: 'Grok', ...r }),
     ...(TEST ? { spawnImpl: testSpawn, httpGet: async () => { throw new Error('disabled in tests'); }, wsImpl: function () { throw new Error('disabled in tests'); } } : {}),
   });

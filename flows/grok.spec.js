@@ -8,7 +8,8 @@ test('Grok Connect launches a browser executable with a regular website tab', as
     await page.locator('[data-testid="connect-grok"]').first().click();
     await expect.poll(async () => (await page.evaluate(() => window.sysmon.testGrokLaunches())).length).toBe(1);
     const [event] = await page.evaluate(() => window.sysmon.testGrokLaunches());
-    expect(event.command).toMatch(/chrome|chromium|msedge|microsoft-edge/i);
+    expect(event.command).toMatch(/chrome|chromium/i);
+    expect(event.command).not.toMatch(/edge/i);
     expect(event.args).toContain('https://grok.com');
     expect(event.args.some(a => a.startsWith('--app'))).toBe(false);
     await expect(page.locator('[data-a="grok"] [data-f="msg"]').first()).toContainText('Could not open');
