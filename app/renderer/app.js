@@ -28,6 +28,25 @@
   function f(parent, name) { return parent.querySelector(`[data-f="${name}"]`); }
   function setText(parent, name, value) { const e = f(parent, name); if (e) e.textContent = value; }
   function setColor(parent, name, value) { const e = f(parent, name); if (e) e.style.color = value; }
+  function icon(name, label, cls) {
+    const img = el('img', `fa-icon ${cls}`);
+    img.src = `./icons/${name}.svg`;
+    img.alt = ''; // adjoining text already names the computer/provider
+    img.title = label;
+    img.dataset.icon = name;
+    return img;
+  }
+  function computerIcon(m) {
+    return icon({ WINDOWS: 'windows', MAC: 'apple', LINUX: 'linux' }[m.os] || 'computer', m.os, 'computer-icon');
+  }
+  function quotaHeadline(a, used) {
+    const row = el('div', 'quota-headline');
+    row.append(providerIcon(a), used);
+    return row;
+  }
+  function providerIcon(a) {
+    return icon({ Codex: 'openai', Claude: 'claude', Kimi: 'k', Grok: 'x-twitter' }[a.vendor] || 'computer', a.vendor, 'provider-icon');
+  }
 
   /* ---------- skeleton builders ---------- */
 
@@ -98,7 +117,8 @@
 
   function machineIdentity(m) {
     const id = el('div', 'm-id');
-    const osRow = el('div', 'os', m.os); osRow.dataset.f = 'os';
+    const osRow = el('div', 'os');
+    osRow.append(computerIcon(m), el('span', null, m.os));
     id.append(osRow);
     id.append(mark(el('div', 'host', ''), 'host'));
     id.append(mark(el('div', 'up', ''), 'up'));
@@ -124,7 +144,8 @@
     const col = el('div', 'bcol');
     col.dataset.m = m.id; col.dataset.testid = `machine-${m.id}`;
     const head = el('div', 'head');
-    head.append(el('span', 'os', m.os));
+    const os = el('span', 'os'); os.append(computerIcon(m), el('span', null, m.os));
+    head.append(os);
     head.append(mark(el('span', 'host', ''), 'host'));
     col.append(head);
     const badge = el('div'); badge.dataset.f = 'badge'; col.append(badge);
@@ -186,6 +207,7 @@
     card.append(top);
     const mid = el('div', 'mid');
     const g = gauge(42, 96, false);
+    const logo = el('div', 'gauge-logo'); logo.append(providerIcon(a)); g.append(logo);
     mid.append(g);
     const info = el('div');
     const used = el('div', 'used v', '—'); used.dataset.f = 'usedN';
@@ -213,7 +235,7 @@
     card.append(top);
     const used = el('div', 'used v', '—'); used.dataset.f = 'usedN';
     used.append(el('span', 'unit', '% left'));
-    card.append(used);
+    card.append(quotaHeadline(a, used));
     const bar = el('div', 'bar'); const fill = el('div'); fill.dataset.f = 'usedBar'; bar.append(fill); card.append(bar);
     card.append(mark(el('div', 'extras', ''), 'extras'));
     const rr = el('div', 'reset-row');
@@ -230,7 +252,9 @@
     card.dataset.a = a.id; card.dataset.testid = `account-${a.id}`;
     const left = el('div'); left.style.minWidth = '0';
     left.append(el('div', 'vendor', `${a.vendor} · ${a.host}`));
-    left.append(mark(el('div', 'reset-big', '—'), 'reset'));
+    const resetRow = el('div', 'reset-headline');
+    resetRow.append(providerIcon(a), mark(el('div', 'reset-big', '—'), 'reset'));
+    left.append(resetRow);
     left.append(mark(el('div', 'until', ''), 'win'));
     left.append(mark(el('div', 'msg', ''), 'msg'));
     const badge = el('div'); badge.dataset.f = 'badge'; left.append(badge);

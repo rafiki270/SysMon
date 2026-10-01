@@ -79,7 +79,7 @@ semantics.
   utilization wins, keeping that window's own reset. Malformed values are
   dropped, never coerced to 0.
 - **Grok** — *website* subscription (not the xAI API). A persistent isolated
-  Chrome/Edge profile holds the user's own sign-in; Connect opens a normal
+  Chrome profile holds the user's own sign-in; Connect opens a normal
   browser window supporting Google sign-in. Without a session the card
   shows an explicit **Connect** state and the app asks the user to sign in.
   Quota polling uses the site's private/internal `/rest/rate-limits` shape on
@@ -139,6 +139,12 @@ failures it actually found — stale data is shown as stale, never as
   reconnecting the second display restores fullscreen there, including after
   sleep. Developed for the 1920x720 secondary above a
   1920x1080 primary; all three layouts fit six cards at 1920x720.
+
+Font Awesome Free 7 icons are bundled as local SVGs (regenerate with
+`npm run build:icons`; attribution is in `app/renderer/icons/LICENSE.txt`).
+Computers use Windows, Apple and Linux; providers use OpenAI, Claude, K and
+X. In 1A provider logos sit inside the rings, in 1B beside the percentage,
+and in 1C beside the reset countdown.
 
 ## MCP server + mDNS
 

@@ -82,7 +82,7 @@ test('hostile strings from providers are inert text, never markup', async () => 
     const msg = page.locator('[data-a="minis-Claude"] [data-f="msg"]').first();
     await expect(msg).toContainText(payload);
     expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
-    expect(await page.locator('[data-a="minis-Claude"] img').count()).toBe(0);
+    expect(await msg.locator('img').count()).toBe(0);
     expect(errors).toEqual([]);
   } finally {
     await app.close();
