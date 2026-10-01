@@ -5,6 +5,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const EventEmitter = require('node:events');
@@ -12,12 +13,21 @@ const collector = require('./collector.cjs');
 const { HostLink } = require('./link.cjs');
 
 const hosts = [
-  { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', local: true },
+  { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', ssh: 'dictator@192.168.1.215', fallback: null, localPort: 17378 },
   { id: 'dictator', name: 'dictator', os: 'MAC', address: '192.168.1.229', ssh: 'dictator@dictator.local', fallback: 'dictator@192.168.1.229', localPort: 17379 },
   { id: 'umac', name: 'umac', os: 'LINUX', address: '192.168.1.192', ssh: 'umac@umac.local', fallback: 'umac@192.168.1.192', localPort: 17380 },
 ];
 const STALE_AFTER_MS = 12000;
 const source = fs.readFileSync(path.join(__dirname, 'collector.cjs'), 'utf8');
+
+// The app can run on any of the three machines: decide which host is local by
+// hostname first, then by platform, instead of assuming Windows.
+function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = {}) {
+  const hn = String(hostname).toLowerCase().replace(/\.(local|lan)$/, '');
+  const byName = hosts.find(h => h.id === hn || h.name.toLowerCase() === hn);
+  if (byName) return byName.id;
+  return { win32: 'minis', darwin: 'dictator', linux: 'umac' }[platform] || null;
+}
 
 function sshCollect(host, mode, target = host.ssh) {
   return new Promise((resolve, reject) => {
@@ -32,7 +42,8 @@ function sshCollect(host, mode, target = host.ssh) {
     p.stderr.resume();
     p.stdout.on('data', d => { output += d.toString(); if (output.length > 2e6) finish(new Error('oversized')); });
     p.on('close', code => { if (code !== 0) return finish(new Error('offline')); try { finish(null, JSON.parse(output.trim())); } catch { finish(new Error('invalid collector response')); } });
-    p.stdin.end(source);
+    // node-stdin sets require.main!==module, so invoke the runner explicitly.
+    p.stdin.end(source + '\n;module.exports.run(' + JSON.stringify(mode) + ').then(x=>process.stdout.write(JSON.stringify(x)+"\\n")).catch(()=>{process.stdout.write(JSON.stringify({status:"unavailable"})+"\\n");process.exitCode=1;});');
   }).catch(e => { if (target === host.ssh && host.fallback) return sshCollect(host, mode, host.fallback); throw e; });
 }
 
@@ -47,8 +58,9 @@ class Monitor extends EventEmitter {
     super();
     this.log = log;
     this.inject = inject; // test hook: {machines, accounts, ci} applied in start()
+    this.localId = detectLocalId();
     this.state = {
-      machines: hosts.map(h => ({ ...h, status: 'connecting', sampledAt: null, history: [] })),
+      machines: hosts.map(h => ({ ...h, local: h.id === this.localId, status: 'connecting', sampledAt: null, history: [] })),
       accounts: [
         ...['minis', 'dictator'].flatMap(host => ['Codex', 'Claude'].map(vendor => ({ id: `${host}-${vendor}`, host, vendor, status: 'connecting', windows: [] }))),
         { id: 'dictator-Kimi', host: 'dictator', vendor: 'Kimi', status: 'connecting', windows: [] },
@@ -58,9 +70,15 @@ class Monitor extends EventEmitter {
       updatedAt: null,
     };
     this.stopped = false;
-    this.timers = [];
+    this.timers = new Set();
     this.accountNext = {};
     this.links = [];
+  }
+  later(fn, ms) {
+    if (this.stopped) return null;
+    const t = setTimeout(() => { this.timers.delete(t); fn(); }, ms);
+    this.timers.add(t);
+    return t;
   }
   publish() { this.state.updatedAt = Date.now(); this.emit('update', this.state); }
   machine(id) { return this.state.machines.find(m => m.id === id); }
@@ -82,10 +100,10 @@ class Monitor extends EventEmitter {
     if (this.stopped) return;
     try { const r = await collector.machine(); this.applyMetrics(host, { ...r, source: 'local' }); }
     catch { this.degrade(host, 'offline'); }
-    if (!this.stopped) this.timers.push(setTimeout(() => this.localMachine(host), 2500));
+    this.later(() => this.localMachine(host), 2500);
   }
   startHost(host) {
-    if (host.local) { this.localMachine(host); return; }
+    if (host.id === this.localId) { this.localMachine(host); return; }
     const link = new HostLink(host, { localPort: host.localPort, sshCollect, log: this.log });
     link.on('metrics', r => this.applyMetrics(host, r));
     link.on('status', s => { if (s !== 'live') this.degrade(host, s); });
@@ -94,9 +112,9 @@ class Monitor extends EventEmitter {
   }
   async accounts(host) {
     if (this.stopped) return;
-    if ((this.accountNext[host.id] || 0) > Date.now()) { this.timers.push(setTimeout(() => this.accounts(host), 5000)); return; }
+    if ((this.accountNext[host.id] || 0) > Date.now()) { this.later(() => this.accounts(host), 5000); return; }
     try {
-      const result = host.local ? await collector.accounts() : await sshCollect(host, 'accounts');
+      const result = host.id === this.localId ? await collector.accounts() : await sshCollect(host, 'accounts');
       for (const r of result) {
         const i = this.state.accounts.findIndex(a => a.host === host.id && a.vendor === r.vendor);
         if (i >= 0) this.state.accounts[i] = { ...this.state.accounts[i], ...reconcileAccount(this.state.accounts[i], r) };
@@ -108,7 +126,7 @@ class Monitor extends EventEmitter {
       this.state.accounts = this.state.accounts.map(a => a.host === host.id ? { ...a, status: a.windows.length ? 'stale' : 'unavailable', message: 'Host unavailable' } : a);
     }
     this.publish();
-    if (!this.stopped) this.timers.push(setTimeout(() => this.accounts(host), 5000));
+    this.later(() => this.accounts(host), 5000);
   }
   async ci() {
     if (this.stopped) return;
@@ -120,7 +138,7 @@ class Monitor extends EventEmitter {
       this.state.ci = { ...this.state.ci, status: this.state.ci.sampledAt ? 'stale' : 'unavailable', message: 'GitHub CLI unavailable or not signed in' };
     }
     this.publish();
-    if (!this.stopped) this.timers.push(setTimeout(() => this.ci(), 60000));
+    this.later(() => this.ci(), 60000);
   }
   watchdog() {
     if (this.stopped) return;
@@ -128,7 +146,7 @@ class Monitor extends EventEmitter {
     for (const m of this.state.machines) {
       if (m.status === 'live' && m.sampledAt && now - m.sampledAt > STALE_AFTER_MS) { m.status = 'stale'; this.publish(); }
     }
-    this.timers.push(setTimeout(() => this.watchdog(), 4000));
+    this.later(() => this.watchdog(), 4000);
   }
   setGrok(r) {
     const i = this.state.accounts.findIndex(a => a.id === 'grok');
@@ -143,10 +161,10 @@ class Monitor extends EventEmitter {
   }
   stop() {
     this.stopped = true;
-    this.timers.forEach(clearTimeout);
-    this.timers = [];
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
     this.links.forEach(l => l.stop());
     this.links = [];
   }
 }
-module.exports = { Monitor, hosts, sshCollect, reconcileAccount, STALE_AFTER_MS };
+module.exports = { Monitor, hosts, sshCollect, reconcileAccount, detectLocalId, STALE_AFTER_MS };
