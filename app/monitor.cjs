@@ -60,10 +60,11 @@ function reconcileAccount(old, reading) {
 }
 
 class Monitor extends EventEmitter {
-  constructor({ log = () => {}, inject } = {}) {
+  constructor({ log = () => {}, inject, readAccounts } = {}) {
     super();
     this.log = log;
     this.inject = inject; // test hook: {machines, accounts, ci} applied in start()
+    this.readAccounts = readAccounts || null; // test hook: replaces local/ssh reads
     this.localId = detectLocalId();
     this.state = {
       machines: hosts.map(h => ({ ...h, local: h.id === this.localId, status: 'connecting', sampledAt: null, history: [] })),
@@ -78,6 +79,8 @@ class Monitor extends EventEmitter {
     this.stopped = false;
     this.timers = new Set();
     this.accountNext = {};
+    this.accountTimers = new Map(); // host.id -> the single pending chain wake-up
+    this.accountBusy = new Set(); // host.id with a read in flight
     this.links = [];
   }
   later(fn, ms) {
@@ -116,32 +119,59 @@ class Monitor extends EventEmitter {
     this.links.push(link);
     link.start();
   }
+  // Exactly one pending wake-up per host: the chain self-polls every 5s and
+  // re-checks the deadline, so refresh requests never add parallel chains.
+  scheduleAccounts(host, ms = 5000) {
+    if (this.stopped || this.accountTimers.has(host.id)) return;
+    const t = this.later(() => { this.accountTimers.delete(host.id); this.accounts(host); }, ms);
+    if (t) this.accountTimers.set(host.id, t);
+  }
   async accounts(host) {
     if (this.stopped) return;
-    if ((this.accountNext[host.id] || 0) > Date.now()) { this.later(() => this.accounts(host), 5000); return; }
+    if (this.accountBusy.has(host.id)) { this.scheduleAccounts(host); return; }
+    if ((this.accountNext[host.id] || 0) > Date.now()) { this.scheduleAccounts(host); return; }
+    this.accountBusy.add(host.id);
+    // Consume any refresh marker up front: this read IS the requested
+    // refresh. Only a refresh requested DURING the await below queues
+    // another read; otherwise the deadline advances to the normal interval.
+    this.accountNext[host.id] = -1; // read in flight
     try {
-      const result = host.id === this.localId ? await collector.accounts() : await sshCollect(host, 'accounts');
+      const result = this.readAccounts ? await this.readAccounts(host) : (host.id === this.localId ? await collector.accounts() : await sshCollect(host, 'accounts'));
       for (const r of result) {
         const i = this.state.accounts.findIndex(a => a.host === host.id && a.vendor === r.vendor);
         if (i >= 0) this.state.accounts[i] = { ...this.state.accounts[i], ...reconcileAccount(this.state.accounts[i], r) };
       }
       const retry = Math.max(0, ...result.map(r => r.retryAfter || 0));
-      this.accountNext[host.id] = Date.now() + Math.max(120, retry) * 1000;
+      // 0 here means a refresh arrived during the read: keep it so exactly
+      // one extra read runs, which then advances the deadline normally.
+      if (this.accountNext[host.id] !== 0) this.accountNext[host.id] = Date.now() + Math.max(120, retry) * 1000;
     } catch {
-      this.accountNext[host.id] = Date.now() + 120000;
+      if (this.accountNext[host.id] !== 0) this.accountNext[host.id] = Date.now() + 120000;
       this.state.accounts = this.state.accounts.map(a => a.host === host.id ? { ...a, status: a.windows.length ? 'stale' : 'unavailable', message: 'Host unavailable' } : a);
     }
+    this.accountBusy.delete(host.id);
     this.publish();
-    this.later(() => this.accounts(host), 5000);
+    if (this.accountNext[host.id] === 0) {
+      // Service the queued refresh promptly: replace any pending wake-up
+      // with an immediate one (still exactly one pending timer per host).
+      const pending = this.accountTimers.get(host.id);
+      if (pending) { clearTimeout(pending); this.timers.delete(pending); this.accountTimers.delete(host.id); }
+      this.scheduleAccounts(host, 0);
+    } else {
+      this.scheduleAccounts(host);
+    }
   }
   // Re-read one host's accounts now (e.g. right after a CLI sign-in finished)
-  // instead of waiting for the next scheduled poll.
+  // instead of waiting for the next scheduled poll. Resets the deadline and
+  // nudges the single existing chain — never starts a parallel one.
   refreshAccounts(hostId) {
     if (this.stopped || !this.started) return;
     const host = hosts.find(h => h.id === hostId);
     if (!host || host.id === 'umac') return; // umac has no account cards
     this.accountNext[host.id] = 0;
-    this.accounts(host);
+    const pending = this.accountTimers.get(host.id);
+    if (pending) { clearTimeout(pending); this.timers.delete(pending); this.accountTimers.delete(host.id); }
+    this.scheduleAccounts(host, 0);
   }
   async ci() {
     if (this.stopped) return;
@@ -179,6 +209,7 @@ class Monitor extends EventEmitter {
     this.stopped = true;
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
+    this.accountTimers.clear();
     this.links.forEach(l => l.stop());
     this.links = [];
   }

@@ -48,6 +48,19 @@ duplicate account card.
 Six cards: Codex and Claude on Minis, Codex and Claude on dictator, Kimi on
 dictator, Grok (website subscription).
 
+Every card headlines its **weekly** quota as **percent remaining**
+("N% left"), with the gauge/bar filling with what is left and scarcity
+colors (green plenty, amber/red little). Provider-reported shorter windows
+(Kimi 5-hour, Claude five hour) and model-specific weekly sub-limits (seven
+day sonnet/opus) stay as secondary "% left" details, and the headline reset
+countdown is the weekly window's own reported reset. Nothing is invented:
+when a provider reports no weekly window (Grok website), the most truthful
+reported window headlines instead, and raw `used` values stay in state for
+MCP consumers. The Kimi headline is the top-level `usage` block — the
+official Kimi CLI labels it "Weekly limit" — preferred over the
+compatibility 7d mirror. Machine CPU/memory/disk keep their utilization
+semantics.
+
 - **Codex** — read-only rate-limit RPC against the local Codex app-server.
   The RPC returns several buckets; the reserve bucket is not the headline —
   the main `codex` bucket is shown first, other buckets compactly. Windows are
@@ -100,7 +113,9 @@ The CLI owns the entire OAuth flow and credential store; the app never reads,
 prints, or logs tokens. Duplicate clicks never spawn a second login (a
 per-host cooldown reports "already open" instead), a failed terminal launch
 is reported on the card, and the host's quota is re-read promptly (at ~20 s,
-60 s and 120 s) once sign-in has had time to complete. The IPC handler only
+60 s and 120 s) once sign-in has had time to complete; refresh requests are
+serviced by the host's single existing poll chain (one pending timer, one
+in-flight read per host — never parallel pollers). The IPC handler only
 accepts the narrow allowlist of host ids that own a Claude card.
 
 ## CI panel

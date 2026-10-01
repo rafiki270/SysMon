@@ -18,7 +18,10 @@ test('kimiWindows maps all three live schema shapes; malformed never becomes 0',
   assert.strictEqual(Math.round(byLabel['7d'].used), 25);
   assert.strictEqual(byLabel['5h'].resetAt, Date.parse('2026-10-01T20:00:00Z'));
   assert.ok(!('junk' in byLabel) && !('also_junk' in byLabel));
-  assert.strictEqual(byLabel['Overall'].used, 25);
+  // Official Kimi CLI labels the top-level usage block "Weekly limit".
+  assert.strictEqual(byLabel['Kimi · weekly'].used, 25);
+  assert.strictEqual(byLabel['Kimi · weekly'].main, true);
+  assert.strictEqual(byLabel['Kimi · weekly'].resetAt, Date.parse('2026-10-05T00:00:00Z'));
   assert.strictEqual(byLabel['5h (dup)'], undefined);
   // limits entry labelled 5h from duration
   assert.strictEqual(Math.round(byLabel['5h'].used), 80);
@@ -47,7 +50,24 @@ test('kimiWindows prefers authoritative detailed limits over conflicting compat 
   assert.strictEqual(byLabel['5h'].used, 24);
   assert.strictEqual(byLabel['5h'].resetAt, Date.parse(detailReset));
   assert.strictEqual(byLabel['7d'].used, 0); // genuine 0 stays 0
-  assert.strictEqual(byLabel['Overall'].used, 11);
+  assert.strictEqual(byLabel['Kimi · weekly'].used, 11);
+});
+
+test('kimiWindows weekly summary is flagged main and keeps its own reset, distinct from the 7d compat mirror', () => {
+  const w = kimiWindows({
+    usage: { limit: 1000, used: 120, remaining: 880, resetTime: '2026-10-06T12:00:00Z' },
+    usages: { limit_7d: { used_ratio: 0.3, reset_time: '2026-10-07T00:00:00Z' }, limit_5h: { used_ratio: 0.9, reset_time: '2026-10-01T18:00:00Z' } },
+  });
+  const byLabel = Object.fromEntries(w.map((x) => [x.label, x]));
+  assert.strictEqual(byLabel['Kimi · weekly'].used, 12);
+  assert.strictEqual(byLabel['Kimi · weekly'].main, true);
+  // the reported weekly reset is preserved, never replaced by the 7d mirror's
+  assert.strictEqual(byLabel['Kimi · weekly'].resetAt, Date.parse('2026-10-06T12:00:00Z'));
+  assert.strictEqual(Math.round(byLabel['7d'].used), 30); // compat mirror kept as secondary detail
+  // weekly headline wins over a far hotter 5h window
+  const { primary, extras } = require('../app/renderer/shared.cjs').primaryWindow(w);
+  assert.strictEqual(primary.label, 'Kimi · weekly');
+  assert.ok(extras.some((x) => x.label === '5h'));
 });
 
 test('kimiWindows drops null/empty/boolean ratios instead of coercing to 0', () => {
@@ -71,7 +91,7 @@ test('kimiWindows: used-null falls back to remaining; corrupt pairs are dropped'
   assert.strictEqual(byLabel.fromRemaining.used, 75);
   assert.strictEqual(byLabel.realZero.used, 0);
   assert.ok(!('usedBeyondLimit' in byLabel) && !('negativeRemaining' in byLabel) && !('boolUsed' in byLabel));
-  // usage block: malformed usage yields no Overall window, never 0
+  // usage block: malformed usage yields no weekly window, never 0
   assert.deepStrictEqual(kimiWindows({ usage: { limit: 100, used: null, remaining: null } }), []);
   assert.strictEqual(kimiWindows({ usage: { limit: 200, remaining: 50 } })[0].used, 75);
 });

@@ -83,3 +83,62 @@ test('watchdog marks silent live machines stale', () => {
   m2.stop();
   assert.strictEqual(m2.machine(hosts[0].id).status, 'stale');
 });
+
+test('refreshAccounts is serviced by the single existing chain — never parallel chains', async () => {
+  const reads = [];
+  const m = new Monitor({ readAccounts: async (host) => { reads.push(host.id); return []; } });
+  m.started = true;
+  const host = hosts.find((h) => h.id === 'dictator');
+  await m.accounts(host); // the one chain start() would create
+  assert.strictEqual(m.timers.size, 1);
+  assert.strictEqual(m.accountTimers.size, 1);
+  // Repeated sign-in refreshes (e.g. 20s/60s/120s timers) must not add chains.
+  m.refreshAccounts('dictator');
+  m.refreshAccounts('dictator');
+  m.refreshAccounts('dictator');
+  assert.strictEqual(m.timers.size, 1);
+  assert.strictEqual(m.accountTimers.size, 1);
+  await new Promise((r) => setTimeout(r, 30)); // let the nudge tick run
+  assert.ok(reads.length >= 2, 'refresh was serviced promptly');
+  assert.strictEqual(m.timers.size, 1, 'still exactly one chain after servicing');
+  m.stop();
+  assert.strictEqual(m.timers.size, 0);
+});
+
+test('a completed requested refresh advances to the normal deadline — no 5s polling', async () => {
+  const reads = [];
+  const m = new Monitor({ readAccounts: async (host) => { reads.push(host.id); return []; } });
+  m.started = true;
+  const host = hosts.find((h) => h.id === 'minis');
+  await m.accounts(host);
+  m.refreshAccounts('minis');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(reads.length, 2, 'one initial read + one requested refresh');
+  // The refresh marker is consumed at read start: the deadline must advance
+  // to the normal interval, never stick at 0 (which would poll every 5s).
+  assert.ok(m.accountNext.minis > Date.now() + 60000, `deadline advanced, got ${m.accountNext.minis - Date.now()}ms`);
+  await m.accounts(host); // chain tick: future deadline -> no further read
+  assert.strictEqual(reads.length, 2);
+  m.stop();
+});
+
+test('a refresh queued during an in-flight read causes exactly one extra read, then advances', async () => {
+  let calls = 0, release;
+  const gate = new Promise((r) => { release = r; });
+  const m = new Monitor({ readAccounts: async () => { calls += 1; if (calls === 1) await gate; return []; } });
+  m.started = true;
+  const host = hosts.find((h) => h.id === 'minis');
+  const inflight = m.accounts(host); // read parks on the gate
+  m.refreshAccounts('minis'); // queued while busy: marker set, no new chain
+  assert.strictEqual(m.timers.size, 1);
+  release();
+  await inflight;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(calls, 2, 'exactly one extra read for the queued refresh');
+  assert.ok(m.accountNext.minis > Date.now() + 60000, 'deadline advanced after the extra read');
+  await m.accounts(host); // future deadline -> no third read
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(m.timers.size, 1);
+  assert.strictEqual(m.accountTimers.size, 1);
+  m.stop();
+});

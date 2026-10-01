@@ -21,7 +21,10 @@ test('stale machine keeps last valid reading with elapsed-time badge', async () 
 });
 
 test('reset countdown ticks down locally every second', async () => {
-  const { app, page, errors } = await launch(baseFixture());
+  const fixture = baseFixture();
+  // The headline is the weekly window; give it a near reset so the tick is visible.
+  fixture.initial.accounts[4].windows[0].resetAt = Date.now() + 95000;
+  const { app, page, errors } = await launch(fixture);
   try {
     const reset = page.locator('[data-a="dictator-Kimi"] [data-f="reset"]').first();
     await expect(reset).toContainText(/1m \d{2}s/);
@@ -55,7 +58,7 @@ test('grok stale keeps readings and offers Reconnect; auth offers Connect', asyn
   const { app, page, errors } = await launch(fixture);
   try {
     const grok = page.locator('[data-a="grok"]').first();
-    await expect(grok).toContainText('40'); // stale reading preserved
+    await expect(grok.locator('[data-f="usedN"]')).toHaveText('60% left'); // stale reading preserved as remaining
     await expect(grok.locator('[data-testid="connect-grok"]')).toHaveText('Reconnect');
     expect(errors).toEqual([]);
   } finally {
