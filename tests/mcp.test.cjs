@@ -41,19 +41,42 @@ function packagedBinary() {
   return null;
 }
 
+// Path of app/main.cjs inside the packed asar, as seen by the packed binary
+// itself (Electron resolves asar paths; plain fs.existsSync cannot, so check
+// the asar file instead).
+function packagedAsarMain(binary) {
+  const resources = process.platform === 'darwin'
+    ? path.join(path.dirname(binary), '..', 'Resources')
+    : path.join(path.dirname(binary), 'resources');
+  const asar = path.join(resources, 'app.asar');
+  return fs.existsSync(asar) ? path.join(asar, 'app', 'main.cjs') : null;
+}
+
 // Adapter launch modes, all spoken to through the official SDK stdio client:
 //   direct  — dev checkout: plain node on the adapter (deps from node_modules)
 //   runasnode — installed dispatch: electron binary runs app/main.cjs as plain
 //               node (ELECTRON_RUN_AS_NODE=1), which routes --mcp-stdio to the
 //               adapter before any GUI/single-instance/poller startup
-//   packaged — the real packed binary: `SysMon --mcp-stdio`
+//   packaged — the real packed binary and its bundled asar. macOS/Linux run
+//              `SysMon --mcp-stdio` directly; Windows must use the RunAsNode
+//              form against the installed asar: the packed exe is a
+//              GUI-subsystem binary whose stdio pipes never carry MCP
+//              traffic (the adapter connects, then the client hangs —
+//              verified against the installed Windows build).
 function adapterTransports(env) {
   const modes = [
     ['direct', { command: process.execPath, args: [ADAPTER], env }],
     ['runasnode', { command: require('electron'), args: [APP_MAIN, '--mcp-stdio'], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }],
   ];
   const binary = packagedBinary();
-  if (binary) modes.push(['packaged', { command: binary, args: ['--mcp-stdio'], env }]);
+  if (binary) {
+    if (process.platform === 'win32') {
+      const asarMain = packagedAsarMain(binary);
+      if (asarMain) modes.push(['packaged', { command: binary, args: [asarMain, '--mcp-stdio'], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }]);
+    } else {
+      modes.push(['packaged', { command: binary, args: ['--mcp-stdio'], env }]);
+    }
+  }
   return modes;
 }
 
@@ -451,11 +474,20 @@ test('stdio adapter: full lifecycle in every launch mode (direct, RunAsNode disp
   try {
     const env = { ...process.env, SYSMON_MCP_URL: url, SYSMON_USERDATA: dir };
     for (const [mode, params] of adapterTransports(env)) {
-      await t.test(mode, async () => {
+      await t.test(mode, { timeout: 60000 }, async () => {
         const transport = new StdioClientTransport({ ...params, stderr: 'pipe' });
         const client = new Client({ name: 'stdio-test-client', version: '0.0.1' });
-        await client.connect(transport);
+        // Bounded connect: a launch mode whose stdio never answers (e.g. the
+        // bare GUI-subsystem exe on Windows) must fail this subtest, not hang
+        // the whole suite; the child is always terminated in finally.
+        let connectTimer;
         try {
+          await Promise.race([
+            client.connect(transport),
+            new Promise((_, reject) => {
+              connectTimer = setTimeout(() => reject(new Error(`adapter connect timed out after 30s (${mode})`)), 30000);
+            }),
+          ]);
           const { tools } = await client.listTools();
           assert.deepStrictEqual(tools.map((t) => t.name).sort(), ['get_accounts', 'get_ci', 'get_machines', 'get_stats']);
           const stats = await client.callTool({ name: 'get_stats', arguments: {} });
@@ -476,7 +508,11 @@ test('stdio adapter: full lifecycle in every launch mode (direct, RunAsNode disp
           }
           assert.ok(!alive, `adapter exits when the client disconnects (${mode})`);
         } finally {
+          clearTimeout(connectTimer);
           await client.close().catch(() => {});
+          await transport.close().catch(() => {});
+          const pid = transport.pid;
+          if (pid) { try { process.kill(pid); } catch {} }
         }
       });
     }

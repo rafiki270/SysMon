@@ -428,7 +428,17 @@
       if (a.id === 'grok' && a.status !== 'live') {
         const b = el('button', 'link', a.status === 'auth' ? 'Connect' : 'Reconnect');
         b.dataset.testid = 'connect-grok';
-        b.addEventListener('click', () => window.sysmon.connectGrok());
+        b.addEventListener('click', async () => {
+          b.disabled = true;
+          b.textContent = 'Opening browser…';
+          try {
+            const result = await window.sysmon.connectGrok();
+            b.textContent = result?.ok ? 'Browser opened' : 'Retry';
+            b.title = result?.message || '';
+            if (!result?.ok) msg.prepend(document.createTextNode(`${result?.message || 'Could not open browser'} `));
+          } catch { b.textContent = 'Retry'; }
+          finally { b.disabled = false; }
+        });
         msg.append(b);
       }
       if (a.vendor === 'Claude' && (a.status === 'auth' || a.status === 'stale')) {

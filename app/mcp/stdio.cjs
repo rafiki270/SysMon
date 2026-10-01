@@ -11,8 +11,12 @@
 //
 // Installed apps run this through the packaged binary so the official SDK
 // (inside app.asar) is available to a bare process:
-//   SysMon.exe --mcp-stdio            (Windows installed app)
-//   SysMon --mcp-stdio                (macOS/Linux installed app)
+//   SysMon --mcp-stdio                          (macOS/Linux installed app)
+//   ELECTRON_RUN_AS_NODE=1 SysMon.exe <resources/app.asar/app/main.cjs> --mcp-stdio
+//                                               (Windows: the packed exe is a
+//                                               GUI-subsystem binary whose
+//                                               stdio pipes carry no MCP
+//                                               traffic when launched bare)
 // The dispatch lives at the top of app/main.cjs, before single-instance,
 // window, and monitor startup, so the adapter never launches a second GUI
 // or the provider pollers. Dev checkouts can also run `node app/mcp/stdio.cjs`.

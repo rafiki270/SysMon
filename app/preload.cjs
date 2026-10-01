@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('sysmon', {
   openCi: url => ipcRenderer.invoke('open-ci', url),
   testDisplays: (list, opts) => ipcRenderer.invoke('test:displays', list, opts),
   testRealDisplays: () => ipcRenderer.invoke('test:real-displays'),
+  testPlacement: () => ipcRenderer.invoke('test:placement'),
+  testGrokLaunches: () => ipcRenderer.invoke('test:grok-launches'),
   testClaudeLogins: () => ipcRenderer.invoke('test:claude-logins'),
   onUpdate: fn => { const listener = (_, s) => fn(s); ipcRenderer.on('update', listener); return () => ipcRenderer.removeListener('update', listener); },
 });

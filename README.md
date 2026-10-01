@@ -8,7 +8,7 @@ failing-CI panel, system tray.
 ## Architecture
 
 - `app/` — Electron main process, preload bridge, monitor, collector, link.
-  - `main.cjs` — window/display placement, tray, IPC, Grok session window.
+  - `main.cjs` — window/display placement, tray, IPC, browser connection.
   - `monitor.cjs` — aggregates machine telemetry + account readings; failed
     reads preserve the last valid reading as **stale**; hosts never reached
     stay **offline**. No fabricated values.
@@ -79,14 +79,16 @@ semantics.
   utilization wins, keeping that window's own reset. Malformed values are
   dropped, never coerced to 0.
 - **Grok** — *website* subscription (not the xAI API). A persistent isolated
-  Electron partition holds the user's own sign-in; without a session the card
+  Chrome/Edge profile holds the user's own sign-in; Connect opens a normal
+  browser window supporting Google sign-in. Without a session the card
   shows an explicit **Connect** state and the app asks the user to sign in.
   Quota polling uses the site's private/internal `/rest/rate-limits` shape on
   a best-effort basis: it is undocumented, may change or be blocked, and is
   only claimed live after a real signed-in response. The app never sends an
   inference/chat request to measure usage, never copies Chrome cookies, and
   never invents reset times — unknown resets render as "unknown". The
-  provider page runs sandboxed with no preload/IPC.
+  browser debug connection listens only on loopback and never exposes cookies
+  through the monitor or MCP. Keep that browser open for quota updates.
 
 Credentials are read locally and never logged, printed, or sent to the
 renderer beyond derived quota numbers.
@@ -133,7 +135,9 @@ failures it actually found — stale data is shown as stale, never as
   "Show on second display", autostart (Login Item on macOS/Windows, XDG
   autostart file on Linux) and quit. Autostart opt-out is remembered.
 - Display placement: prefers the non-primary display; an explicit choice
-  persists; hotplug re-resolves. Developed for the 1920x720 secondary above a
+  persists across disconnection. One or no display uses a framed window;
+  reconnecting the second display restores fullscreen there, including after
+  sleep. Developed for the 1920x720 secondary above a
   1920x1080 primary; all three layouts fit six cards at 1920x720.
 
 ## MCP server + mDNS

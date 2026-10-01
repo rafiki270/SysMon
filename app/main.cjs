@@ -11,15 +11,16 @@ if (process.argv.includes('--mcp-stdio')) {
   });
   return;
 }
-const { app, BrowserWindow, ipcMain, screen, session, Menu, Tray, nativeImage, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, shell, clipboard, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { Monitor } = require('./monitor.cjs');
 const { hosts } = require('./monitor.cjs');
 const { createClaudeAuth } = require('./auth.cjs');
-const { loadSettings, saveSettings, layouts, chooseDisplay } = require('./settings.cjs');
+const { createGrokBrowser } = require('./grok-browser.cjs');
+const { loadSettings, saveSettings, layouts, resolvePlacement, fitWindowBounds } = require('./settings.cjs');
 
-let win, tray, monitor, grokWindow, settings, file, grokTimer, claudeAuth, quitting = false, mcpHandle = null;
+let win, tray, monitor, settings, file, claudeAuth, grokAuth, quitting = false, mcpHandle = null;
 const claudeRefreshTimers = new Set();
 // Test mode (SYSMON_TEST=1): no real polling, no login items, isolated userData,
 // deterministic fixture states from SYSMON_FIXTURE. Used by Playwright flows.
@@ -33,16 +34,39 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { win?.show(); win?.focus(); });
 
 function allDisplays() { return displayStub || screen.getAllDisplays(); }
+// Never call primary-display APIs with an empty topology: platforms may throw
+// when every screen is off or none exists.
+function primaryId() { try { return screen.getPrimaryDisplay().id; } catch { return null; } }
+
+// Window placement (policy in settings.cjs resolvePlacement): 2+ displays ->
+// fullscreen kiosk on the remembered/preferred display (no native titlebar);
+// 1 or 0 connected displays -> normal framed window. A fallback target never
+// overwrites settings.displayId, so a powered-off second monitor's identity
+// survives the disconnect and fullscreen is restored when it returns.
+let placeTimer = null, placement = null, placementSig = null;
 function placeWindow() {
-  if (!win) return;
-  const d = chooseDisplay(allDisplays(), screen.getPrimaryDisplay().id, settings.displayId);
-  if (!d) return;
-  if (TEST) { win.setBounds(d.bounds); settings.displayId = d.id; saveSettings(file, settings); return; }
-  win.setFullScreen(false);
-  win.setBounds(d.bounds);
-  win.setFullScreen(true);
-  settings.displayId = d.id;
-  saveSettings(file, settings);
+  if (!win || win.isDestroyed()) return;
+  const displays = allDisplays();
+  const decision = resolvePlacement(displays, displays.length ? primaryId() : null, settings.displayId);
+  if (decision.remember) { settings.displayId = decision.display.id; saveSettings(file, settings); }
+  const fullscreen = decision.mode === 'fullscreen';
+  const cur = win.isFullScreen() ? win.getNormalBounds() : win.getBounds();
+  const area = decision.display ? decision.display.workArea || decision.display.bounds : null;
+  const bounds = area ? (fullscreen ? decision.display.bounds : fitWindowBounds(area, cur.width, cur.height)) : null;
+  placement = { mode: decision.mode, displayId: decision.display ? decision.display.id : null, bounds };
+  const sig = `${decision.mode}:${placement.displayId}:${bounds ? `${bounds.x},${bounds.y},${bounds.width},${bounds.height}` : ''}`;
+  if (sig === placementSig && win.isFullScreen() === fullscreen) return; // already there; avoid fullscreen re-animation loops
+  placementSig = sig;
+  try {
+    if (win.isFullScreen()) win.setFullScreen(false);
+    if (bounds) win.setBounds(bounds);
+    if (fullscreen) win.setFullScreen(true);
+  } catch (e) { console.log(`[sysmon] window placement failed: ${e.message}`); }
+}
+// Hotplug/resume storms (docks, nightly power-off) collapse into one pass.
+function schedulePlaceWindow(ms = 150) {
+  clearTimeout(placeTimer);
+  placeTimer = setTimeout(() => { placeTimer = null; placeWindow(); }, ms);
 }
 function trusted(event) { return win && event.sender === win.webContents && event.senderFrame?.url === win.webContents.getURL(); }
 function handle(name, fn) { ipcMain.handle(name, (event, ...args) => { if (!trusted(event)) throw new Error('Untrusted sender'); return fn(...args); }); }
@@ -68,60 +92,10 @@ function setLoginItem(enabled) {
   app.setLoginItemSettings({ openAtLogin: enabled });
 }
 
-// Learn the site's own rate-limits request shape (requestKind/modelName) from
-// the isolated grok session; read-only observation, no inference is ever sent.
-function observeGrokQuotaShape() {
-  try {
-    session.fromPartition('persist:grok').webRequest.onBeforeRequest(
-      { urls: ['https://grok.com/rest/rate-limits*'] },
-      (details, cb) => {
-        try {
-          const raw = details.uploadData?.[0]?.bytes?.toString('utf8');
-          if (raw) { const p = JSON.parse(raw); if (p && typeof p.requestKind === 'string') grokParams = { requestKind: p.requestKind, ...(typeof p.modelName === 'string' ? { modelName: p.modelName } : {}) }; }
-        } catch {}
-        cb({});
-      });
-  } catch {}
-}
-
-// Grok website subscription quota via the app's own isolated browser session.
-// Private/undocumented endpoint: best-effort, every failure is explicit.
-// Never sends inference requests; never guesses reset times.
-let grokParams = null; // requestKind/modelName observed from the site's own calls
-let grokPolling = false;
-async function pollGrok() {
-  if (grokPolling) return; // never overlap polls
-  grokPolling = true;
-  try {
-    const s = session.fromPartition('persist:grok');
-    const cookies = await s.cookies.get({ url: 'https://grok.com' });
-    if (!cookies.some(c => /^(sso|sso-rw)$/.test(c.name))) return monitor.setGrok({ vendor: 'Grok', status: 'auth', message: 'Connect Grok', windows: [] });
-    const params = grokParams || { requestKind: 'DEFAULT', modelName: 'grok-4-auto' };
-    const response = await s.fetch('https://grok.com/rest/rate-limits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal: AbortSignal.timeout(15000) });
-    if (!response.ok) return monitor.setGrok({ vendor: 'Grok', status: response.status === 401 || response.status === 403 ? 'auth' : 'unavailable', message: `Grok HTTP ${response.status} · open connection`, windows: [] });
-    const r = await response.json();
-    const limit = Number(r.totalRequests), remaining = Number(r.remainingQueries ?? r.remainingRequests);
-    // Reset only when the website actually reports one; window size is not a reset time.
-    const reset = r.resetTime ? Date.parse(r.resetTime) : r.resetAt ? Number(r.resetAt) * 1000 : null;
-    if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(remaining)) return monitor.setGrok({ vendor: 'Grok', status: 'unavailable', message: 'Website quota format changed', windows: [] });
-    monitor.setGrok({ vendor: 'Grok', status: 'live', sampledAt: Date.now(), windows: [{ label: 'Grok web', used: 100 * (limit - remaining) / limit, resetAt: Number.isFinite(reset) ? reset : null, main: true }], message: reset ? null : 'Website does not report a reset time' });
-  } catch { monitor.setGrok({ vendor: 'Grok', status: 'unavailable', message: 'Open Grok connection to sign in', windows: [] }); }
-  finally { grokPolling = false; }
-}
-// Self-scheduling (not setInterval): a slow poll can never overlap the next one.
-function scheduleGrok(ms = 120000) {
-  clearTimeout(grokTimer);
-  grokTimer = setTimeout(async () => { await pollGrok(); if (!quitting) scheduleGrok(); }, ms);
-}
-function connectGrok() {
-  if (grokWindow) { grokWindow.show(); return; }
-  // Isolated partition, sandboxed, no preload/IPC: the provider page is untrusted.
-  grokWindow = new BrowserWindow({ width: 1100, height: 800, title: 'Connect Grok — SysMon', webPreferences: { partition: 'persist:grok', nodeIntegration: false, contextIsolation: true, sandbox: true } });
-  grokWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  grokWindow.webContents.on('will-navigate', (event, url) => { try { if (!['grok.com', 'accounts.x.ai', 'auth.x.ai', 'x.com', 'twitter.com'].includes(new URL(url).hostname)) event.preventDefault(); } catch { event.preventDefault(); } });
-  grokWindow.loadURL('https://grok.com');
-  grokWindow.on('closed', () => { grokWindow = null; pollGrok(); });
-}
+// Grok sign-in runs in a REAL user-visible browser (dedicated SysMon profile,
+// loopback-only CDP) — the embedded Electron webview cannot complete grok.com
+// sign-in. All browser logic lives in grok-browser.cjs; main keeps only the
+// narrow IPC/tray hooks. See app/grok-browser.cjs for the design contract.
 
 function applyFixture(fixtureFile) {
   const fixture = JSON.parse(fs.readFileSync(fixtureFile, 'utf8'));
@@ -147,7 +121,10 @@ app.whenReady().then(() => {
   settings = loadSettings(file);
   monitor = new Monitor({ log: () => {} });
   Menu.setApplicationMenu(null);
-  win = new BrowserWindow({ show: false, frame: false, width: TEST ? 1600 : undefined, height: TEST ? 900 : undefined, backgroundColor: '#0a0d0b', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  // Framed window: normal mode keeps native user controls; fullscreen mode
+  // natively hides the titlebar, so the kiosk view stays clean on the second
+  // display. autoHideMenuBar keeps Windows/Linux chrome minimal.
+  win = new BrowserWindow({ show: false, frame: true, autoHideMenuBar: true, title: 'SysMon', width: TEST ? 1600 : 1280, height: TEST ? 900 : 760, backgroundColor: '#0a0d0b', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.on('before-input-event', (e, input) => {
@@ -157,9 +134,21 @@ app.whenReady().then(() => {
   handle('snapshot', () => monitor.state);
   handle('settings', () => settings);
   handle('layout', layout => { if (!layouts.includes(layout)) throw new Error('Invalid layout'); settings.layout = layout; saveSettings(file, settings); return settings; });
-  handle('displays', () => allDisplays().map(d => ({ id: d.id, bounds: d.bounds, primary: d.id === screen.getPrimaryDisplay().id })));
-  handle('display', id => { if (!allDisplays().some(d => d.id === id)) throw new Error('Unknown display'); settings.displayId = id; placeWindow(); win.show(); return settings; });
-  handle('connect-grok', () => connectGrok());
+  handle('displays', () => { const ds = allDisplays(); const pid = ds.length ? primaryId() : null; return ds.map(d => ({ id: d.id, bounds: d.bounds, primary: d.id === pid })); });
+  handle('display', id => { if (!allDisplays().some(d => d.id === id)) throw new Error('Unknown display'); settings.displayId = id; saveSettings(file, settings); placeWindow(); win.show(); return settings; });
+  // TEST mode never launches a real browser: the fake process exits at once,
+  // so connect() fails fast and truthfully without touching the system.
+  const grokLaunchLog = [];
+  const testSpawn = (command, args) => {
+    grokLaunchLog.push({ command, args });
+    return { on(ev, cb) { if (ev === 'exit') setImmediate(() => cb(1)); if (ev === 'error') return undefined; return this; }, kill() {}, unref() {} };
+  };
+  grokAuth = createGrokBrowser({
+    profileDir: path.join(app.getPath('userData'), 'grok-browser-profile'),
+    onState: r => monitor.setGrok({ vendor: 'Grok', ...r }),
+    ...(TEST ? { spawnImpl: testSpawn, httpGet: async () => { throw new Error('disabled in tests'); }, wsImpl: function () { throw new Error('disabled in tests'); } } : {}),
+  });
+  handle('connect-grok', () => grokAuth.connect());
   handle('open-ci', url => { if (typeof url === 'string' && /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/.test(url)) return shell.openExternal(url); });
   // Claude sign-in: narrow allowlist of host ids that own a Claude card.
   // SYSMON_TEST records the allowlisted launch (host id + command) instead of
@@ -182,7 +171,9 @@ app.whenReady().then(() => {
   if (TEST) {
     handle('test:displays', (list, opts) => { displayStub = list; if (opts?.reset) { settings.displayId = null; saveSettings(file, settings); } placeWindow(); return allDisplays().map(d => d.id); });
     handle('test:real-displays', () => { displayStub = null; placeWindow(); return true; });
+    handle('test:placement', () => placement); // deterministic policy record: OS geometry itself is not assertable with synthetic displays
     handle('test:claude-logins', () => claudeLoginLog);
+    handle('test:grok-launches', () => grokLaunchLog);
   }
   monitor.on('update', s => { if (!win.isDestroyed()) win.webContents.send('update', s); });
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
@@ -191,9 +182,9 @@ app.whenReady().then(() => {
   tray = new Tray(icon);
   tray.setToolTip('SysMon');
   const menu = () => Menu.buildFromTemplate([
-    { label: 'Show on second display', click: () => { settings.displayId = null; placeWindow(); win.show(); } },
-    { label: 'Displays', submenu: allDisplays().map((d, i) => ({ label: `Display ${i + 1} · ${d.size.width} × ${d.size.height}`, type: 'radio', checked: d.id === settings.displayId, click: () => { settings.displayId = d.id; placeWindow(); win.show(); } })) },
-    { label: 'Connect Grok', click: connectGrok },
+    { label: 'Show on second display', click: () => { settings.displayId = null; saveSettings(file, settings); placeWindow(); win.show(); } },
+    { label: 'Displays', submenu: allDisplays().map((d, i) => ({ label: `Display ${i + 1} · ${d.size.width} × ${d.size.height}`, type: 'radio', checked: d.id === settings.displayId, click: () => { settings.displayId = d.id; saveSettings(file, settings); placeWindow(); win.show(); } })) },
+    { label: 'Connect Grok', click: () => grokAuth.connect() },
     { label: `MCP: ${mcpHandle?.endpoint() || 'unavailable'}`, enabled: false },
     { label: 'Copy MCP endpoint', enabled: !!mcpHandle?.endpoint(), click: () => clipboard.writeText(mcpHandle.endpoint()) },
     { label: 'Start at login', type: 'checkbox', checked: loginItemState(), click: item => setLoginItem(item.checked) },
@@ -203,15 +194,16 @@ app.whenReady().then(() => {
   tray.on('click', () => win.show());
   tray.on('right-click', () => tray.popUpContextMenu(menu()));
   win.on('close', e => { if (!quitting) { e.preventDefault(); win.hide(); } });
-  screen.on('display-added', placeWindow);
-  screen.on('display-removed', placeWindow);
+  screen.on('display-added', () => schedulePlaceWindow());
+  screen.on('display-removed', () => schedulePlaceWindow());
+  screen.on('display-metrics-changed', () => schedulePlaceWindow());
+  // After sleep the reported topology can take seconds to settle (docks,
+  // powered-off screens): re-evaluate now and once more shortly after.
+  powerMonitor.on('resume', () => { schedulePlaceWindow(); setTimeout(() => { if (!quitting) placeWindow(); }, 2000); });
   if (!TEST) {
     // Enable autostart by default only on first run; a saved opt-out is never re-enabled.
     if (app.isPackaged && firstRun && !loginItemState()) setLoginItem(true);
-    observeGrokQuotaShape();
     monitor.start();
-    pollGrok();
-    scheduleGrok();
   } else if (process.env.SYSMON_FIXTURE) {
     applyFixture(process.env.SYSMON_FIXTURE);
   }
@@ -230,5 +222,5 @@ app.whenReady().then(() => {
     }).then(h => { mcpHandle = h; }).catch(e => console.log(`[sysmon] MCP failed to start: ${e.message}`));
   }
 });
-app.on('before-quit', () => { quitting = true; monitor?.stop(); clearTimeout(grokTimer); for (const t of claudeRefreshTimers) clearTimeout(t); claudeRefreshTimers.clear(); mcpHandle?.stop(); });
+app.on('before-quit', () => { quitting = true; monitor?.stop(); grokAuth?.close(); clearTimeout(placeTimer); for (const t of claudeRefreshTimers) clearTimeout(t); claudeRefreshTimers.clear(); mcpHandle?.stop(); });
 app.on('window-all-closed', () => {});

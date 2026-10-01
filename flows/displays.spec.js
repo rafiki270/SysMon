@@ -46,7 +46,13 @@ test('secondary display is the default target, explicit selection and hotplug fo
     // Hotplug removal: saved display gone -> land on the remaining display.
     await page.evaluate((list) => window.sysmon.testDisplays(list), [primary]);
     settings = await page.evaluate(() => window.sysmon.settings());
-    expect(settings.displayId).toBe(primary.id);
+    expect(settings.displayId).toBe(SYNTH_SECONDARY_ID);
+    expect((await page.evaluate(() => window.sysmon.testPlacement())).mode).toBe('normal');
+    await page.evaluate(() => window.sysmon.testDisplays([]));
+    expect((await page.evaluate(() => window.sysmon.testPlacement())).mode).toBe('normal');
+    expect((await page.evaluate(() => window.sysmon.settings())).displayId).toBe(SYNTH_SECONDARY_ID);
+    await page.evaluate((list) => window.sysmon.testDisplays(list), [primary, secondary]);
+    expect(await page.evaluate(() => window.sysmon.testPlacement())).toMatchObject({ mode: 'fullscreen', displayId: SYNTH_SECONDARY_ID });
     expect(errors).toEqual([]);
   } finally {
     await app.close();

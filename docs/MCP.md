@@ -94,26 +94,51 @@ token from the local userData file — so **client configs contain no secrets**:
 
 | Platform | Command |
 |---|---|
-| Windows | `C:\Users\<you>\AppData\Local\SysMon\SysMon.exe --mcp-stdio` |
+| Windows | `ELECTRON_RUN_AS_NODE=1` + `SysMon.exe <install>\resources\app.asar\app\main.cjs --mcp-stdio` (see note below) |
 | macOS | `/Applications/SysMon.app/Contents/MacOS/SysMon --mcp-stdio` |
 | Linux | `<install dir>/sysmon --mcp-stdio` (or the AppImage path) |
 
 The `--mcp-stdio` dispatch runs before the single-instance lock, windows, and
-provider pollers — it never opens a second GUI. For fully headless use (e.g.
-an SSH session), run the binary as plain Node against the bundled asar:
+provider pollers — it never opens a second GUI.
+
+**Windows must use the RunAsNode form.** The installed `SysMon.exe` is a
+GUI-subsystem binary: launched bare with `--mcp-stdio` the adapter starts and
+connects, but its stdio pipes never carry MCP traffic, so clients hang
+(verified against the installed build). Running the same bundled code as
+plain Node fixes the pipes:
 
 ```
-ELECTRON_RUN_AS_NODE=1 <binary> <resources/app.asar/app/main.cjs> --mcp-stdio
+set ELECTRON_RUN_AS_NODE=1
+"C:\Users\<you>\Applications\SysMon\SysMon.exe" "C:\Users\<you>\Applications\SysMon\resources\app.asar\app\main.cjs" --mcp-stdio
 ```
 
-Example client configuration (durable installed paths, no token embedded):
+The same RunAsNode form also works on macOS/Linux for fully headless use
+(e.g. an SSH session), though the bare `--mcp-stdio` binary invocation is
+verified there and is simpler.
+
+Example client configuration (durable installed paths, no token embedded).
+macOS/Linux:
 
 ```json
 {
   "mcpServers": {
     "sysmon": {
-      "command": "C:\\Users\\ondre\\AppData\\Local\\SysMon\\SysMon.exe",
+      "command": "/Applications/SysMon.app/Contents/MacOS/SysMon",
       "args": ["--mcp-stdio"]
+    }
+  }
+}
+```
+
+Windows:
+
+```json
+{
+  "mcpServers": {
+    "sysmon": {
+      "command": "C:\\Users\\ondre\\Applications\\SysMon\\SysMon.exe",
+      "args": ["C:\\Users\\ondre\\Applications\\SysMon\\resources\\app.asar\\app\\main.cjs", "--mcp-stdio"],
+      "env": { "ELECTRON_RUN_AS_NODE": "1" }
     }
   }
 }
