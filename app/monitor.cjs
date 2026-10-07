@@ -41,7 +41,8 @@ function remoteCommand(host, mode) {
 function sshCollect(host, mode, target = host.ssh) {
   return new Promise((resolve, reject) => {
     // Source is sent over encrypted stdin. No remote installation or credentials copy.
-    const p = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, remoteCommand(host, mode)], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    // IPv4 only: stale IPv6 mDNS records cost a ConnectTimeout each before the real address.
+    const p = spawn('ssh', ['-4', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, remoteCommand(host, mode)], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', done = false;
     const timer = setTimeout(() => finish(new Error('timeout')), 45000);
     function finish(e, v) { if (done) return; done = true; clearTimeout(timer); p.kill(); e ? reject(e) : resolve(v); }

@@ -74,7 +74,7 @@ class HostLink extends EventEmitter {
     }
   }
   sshArgs(target) {
-    return ['-N', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6',
+    return ['-4', '-N', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6',
       '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
       '-o', 'ExitOnForwardFailure=yes', '-o', 'StrictHostKeyChecking=accept-new',
       '-L', `127.0.0.1:${this.localPort}:127.0.0.1:${DAEMON_PORT}`, target];
