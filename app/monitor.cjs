@@ -16,11 +16,13 @@ const hosts = [
   { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', ssh: 'ondre@Minis.local', fallback: 'ondre@192.168.1.215', localPort: 17378 },
   { id: 'dictator', name: 'dictator', os: 'MAC', address: '192.168.1.229', ssh: 'dictator@dictator.local', fallback: 'dictator@192.168.1.229', localPort: 17379 },
   { id: 'umac', name: 'umac', os: 'LINUX', address: '192.168.1.192', ssh: 'umac@umac.local', fallback: 'umac@192.168.1.192', localPort: 17380 },
+  { id: 'maxis', name: 'Maxis', os: 'WINDOWS', address: '192.168.1.197', ssh: 'ondre@Maxis.local', fallback: 'ondre@192.168.1.197', localPort: 17381 },
 ];
+const ACCOUNT_HOSTS = ['minis', 'dictator']; // umac and Maxis share those subscriptions: machine metrics only
 const STALE_AFTER_MS = 12000;
 const source = fs.readFileSync(path.join(__dirname, 'collector.cjs'), 'utf8');
 
-// The app can run on any of the three machines: decide which host is local by
+// The app can run on any of the four machines: decide which host is local by
 // hostname first, then by platform, instead of assuming Windows.
 function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = {}) {
   const hn = String(hostname).toLowerCase().replace(/\.(local|lan)$/, '');
@@ -29,7 +31,7 @@ function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = 
   return { win32: 'minis', darwin: 'dictator', linux: 'umac' }[platform] || null;
 }
 
-// Remote shells differ: Minis runs PowerShell (system Node is on PATH), while
+// Remote shells differ: the Windows PCs run PowerShell (system Node is on PATH), while
 // macOS/Linux need the user's local Node prepended to PATH first.
 function remoteCommand(host, mode) {
   if (host.os === 'WINDOWS') return `node - ${mode}`;
@@ -69,7 +71,7 @@ class Monitor extends EventEmitter {
     this.state = {
       machines: hosts.map(h => ({ ...h, local: h.id === this.localId, status: 'connecting', sampledAt: null, history: [] })),
       accounts: [
-        ...['minis', 'dictator'].flatMap(host => ['Codex', 'Claude'].map(vendor => ({ id: `${host}-${vendor}`, host, vendor, status: 'connecting', windows: [] }))),
+        ...ACCOUNT_HOSTS.flatMap(host => ['Codex', 'Claude'].map(vendor => ({ id: `${host}-${vendor}`, host, vendor, status: 'connecting', windows: [] }))),
         { id: 'dictator-Kimi', host: 'dictator', vendor: 'Kimi', status: 'connecting', windows: [] },
         { id: 'grok', host: 'web', vendor: 'Grok', status: 'auth', message: 'Connect Grok', windows: [] },
       ],
@@ -96,7 +98,7 @@ class Monitor extends EventEmitter {
     const { type, source: via, history, ...fields } = reading;
     Object.assign(m, fields, { status: 'live', source: via, lastSuccessAt: fields.sampledAt || Date.now() });
     if (Array.isArray(history) && history.length) m.history = history.filter(x => x && Number.isFinite(x.cpu));
-    else if (Number.isFinite(m.cpu)) m.history = [...m.history.filter(x => x.at > Date.now() - 60000), { at: m.sampledAt, cpu: m.cpu }];
+    else if (Number.isFinite(m.cpu)) m.history = [...m.history.filter(x => x.at > Date.now() - 60000), { at: m.sampledAt, cpu: m.cpu, gpu: Number.isFinite(m.gpu) ? m.gpu : null }];
     this.publish();
   }
   degrade(host, status) {
@@ -167,7 +169,7 @@ class Monitor extends EventEmitter {
   refreshAccounts(hostId) {
     if (this.stopped || !this.started) return;
     const host = hosts.find(h => h.id === hostId);
-    if (!host || host.id === 'umac') return; // umac has no account cards
+    if (!host || !ACCOUNT_HOSTS.includes(host.id)) return; // no account cards there
     this.accountNext[host.id] = 0;
     const pending = this.accountTimers.get(host.id);
     if (pending) { clearTimeout(pending); this.timers.delete(pending); this.accountTimers.delete(host.id); }
@@ -201,7 +203,7 @@ class Monitor extends EventEmitter {
   start() {
     this.started = true;
     hosts.forEach(h => this.startHost(h));
-    hosts.filter(h => h.id !== 'umac').forEach(h => this.accounts(h)); // Ubuntu shares a subscription; no duplicate account cards.
+    hosts.filter(h => ACCOUNT_HOSTS.includes(h.id)).forEach(h => this.accounts(h)); // The others share a subscription; no duplicate account cards.
     this.ci();
     this.watchdog();
   }

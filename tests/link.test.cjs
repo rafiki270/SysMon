@@ -12,6 +12,7 @@ test('detectLocalId selects the right host on each platform', () => {
   assert.strictEqual(detectLocalId({ platform: 'darwin', hostname: 'dictator.local' }), 'dictator');
   assert.strictEqual(detectLocalId({ platform: 'linux', hostname: 'umac' }), 'umac');
   assert.strictEqual(detectLocalId({ platform: 'linux', hostname: 'minis' }), 'minis'); // hostname wins
+  assert.strictEqual(detectLocalId({ platform: 'win32', hostname: 'MAXIS' }), 'maxis'); // second Windows PC, by name only
   assert.strictEqual(detectLocalId({ platform: 'freebsd', hostname: 'elsewhere' }), null);
 });
 

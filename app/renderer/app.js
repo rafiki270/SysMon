@@ -39,6 +39,9 @@
   function computerIcon(m) {
     return icon({ WINDOWS: 'windows', MAC: 'apple', LINUX: 'linux' }[m.os] || 'computer', m.os, 'computer-icon');
   }
+  // Windows PCs are told apart by name; the icon already says Windows.
+  function machineLabel(m) { return m.os === 'WINDOWS' ? String(m.name || m.id).toUpperCase() : m.os; }
+  function hostLine(m) { return m.os === 'WINDOWS' ? m.address : `${m.name} · ${m.address}`; }
   function quotaHeadline(a, used) {
     const row = el('div', 'quota-headline');
     row.append(providerIcon(a), used);
@@ -87,18 +90,18 @@
     return sw;
   }
 
-  function gauge(r, size, center = true) {
+  function gauge(r, size, center = true, key = 'cpu') {
     const g = el('div', 'gauge');
     const svg = svgEl('svg', { width: size, height: size, viewBox: '0 0 100 100' });
     svg.append(svgEl('circle', { cx: 50, cy: 50, r, fill: 'none', stroke: 'var(--line)', 'stroke-width': r === 40 ? 7 : 10 }));
     const arc = svgEl('circle', { cx: 50, cy: 50, r, fill: 'none', stroke: 'var(--mute)', 'stroke-width': r === 40 ? 7 : 10, 'stroke-dasharray': `0 ${2 * Math.PI * r}` });
-    arc.dataset.f = 'arc';
+    arc.dataset.f = key === 'cpu' ? 'arc' : `${key}Arc`;
     arc.style.transition = 'stroke-dasharray .8s';
     svg.append(arc);
     if (!center) { g.append(svg); return g; }
     const gv = el('div', 'gv');
-    gv.append(mark(el('div', 'n v', '—'), 'gaugeN'));
-    gv.append(el('div', 'u', 'CPU'));
+    gv.append(mark(el('div', 'n v', '—'), key === 'cpu' ? 'gaugeN' : `${key}GaugeN`));
+    gv.append(el('div', 'u', key.toUpperCase()));
     g.append(svg, gv);
     return g;
   }
@@ -112,13 +115,18 @@
     d.append(n);
     const sub = el('div', 'sub', ''); sub.dataset.f = labelText.toLowerCase() + 'Sub';
     d.append(sub);
+    if (labelText === 'mem') { // only filled where VRAM is reported
+      const vram = el('div', 'sub vram');
+      vram.append(mark(el('span', null, ''), 'vramPct'), mark(el('span', null, ''), 'vramGB'));
+      d.append(vram);
+    }
     return d;
   }
 
   function machineIdentity(m) {
     const id = el('div', 'm-id');
     const osRow = el('div', 'os');
-    osRow.append(computerIcon(m), el('span', null, m.os));
+    osRow.append(computerIcon(m), el('span', null, machineLabel(m)));
     id.append(osRow);
     id.append(mark(el('div', 'host', ''), 'host'));
     id.append(mark(el('div', 'up', ''), 'up'));
@@ -130,12 +138,11 @@
   function machineRowRadial(m) {
     const row = el('div', 'mrow');
     row.dataset.m = m.id; row.dataset.testid = `machine-${m.id}`;
-    row.append(machineIdentity(m));
+    const id = machineIdentity(m);
+    id.insertBefore(mark(el('div', 'up', ''), 'cores'), f(id, 'badge'));
+    row.append(id);
     const gw = el('div', 'gauge-wrap');
-    gw.append(gauge(40, 132));
-    const meta = el('div', 'gauge-meta', '');
-    meta.dataset.f = 'cores';
-    gw.append(meta);
+    gw.append(gauge(40, 132), gauge(40, 132, true, 'gpu'));
     row.append(gw, mstat('mem'), mstat('disk'));
     return row;
   }
@@ -144,20 +151,23 @@
     const col = el('div', 'bcol');
     col.dataset.m = m.id; col.dataset.testid = `machine-${m.id}`;
     const head = el('div', 'head');
-    const os = el('span', 'os'); os.append(computerIcon(m), el('span', null, m.os));
+    const os = el('span', 'os'); os.append(computerIcon(m), el('span', null, machineLabel(m)));
     head.append(os);
     head.append(mark(el('span', 'host', ''), 'host'));
     col.append(head);
     const badge = el('div'); badge.dataset.f = 'badge'; col.append(badge);
-    const cpu = el('div');
-    const lbl = el('div', 'cpu-lbl');
-    lbl.append(mark(el('span', 't', ''), 'cores'));
-    lbl.append(mark(el('span', 'n v', '—'), 'cpuN'));
-    cpu.append(lbl);
-    const bar = el('div', 'bar');
-    const fill = el('div'); fill.dataset.f = 'cpuBar'; bar.append(fill);
-    cpu.append(bar);
-    col.append(cpu);
+    for (const key of ['cpu', 'gpu']) {
+      const block = el('div');
+      const lbl = el('div', 'cpu-lbl');
+      const t = el('span', 't', key.toUpperCase());
+      if (key === 'cpu') t.append(mark(el('span', 'meta', ''), 'cores'));
+      lbl.append(t, mark(el('span', 'n v', '—'), `${key}N`));
+      block.append(lbl);
+      const bar = el('div', 'bar');
+      const fill = el('div'); fill.dataset.f = `${key}Bar`; bar.append(fill);
+      block.append(bar);
+      col.append(block);
+    }
     const md = el('div', 'md');
     md.append(mstat('mem'), mstat('disk'));
     col.append(md);
@@ -173,18 +183,23 @@
     row.dataset.m = m.id; row.dataset.testid = `machine-${m.id}`;
     row.append(machineIdentity(m));
     const cpu = el('div');
-    const cpuTop = el('div'); cpuTop.style.display = 'flex'; cpuTop.style.justifyContent = 'space-between'; cpuTop.style.alignItems = 'baseline';
+    const cpuTop = el('div', 'cpu-top');
     cpuTop.append(el('span', 'lbl', 'CPU'));
+    // GPU rides along smaller; its label doubles as the legend for the second line.
+    const g = el('span', 'gpu-n');
+    g.append(el('span', 'lbl gpu-key', 'GPU'), mark(el('span', 'v', '—'), 'gpuN'));
     const n = el('span', 'cpu-n v', '—'); n.dataset.f = 'cpuN';
     n.append(el('span', 'unit', '%'));
-    cpuTop.append(n);
+    cpuTop.append(g, n);
     cpu.append(cpuTop);
     const spark = svgEl('svg', { viewBox: '0 0 240 56', preserveAspectRatio: 'none', class: 'spark' });
     spark.setAttribute('class', 'spark');
     spark.append(svgEl('line', { x1: 0, y1: 55, x2: 240, y2: 55, stroke: 'var(--line)' }));
     const pl = svgEl('polyline', { fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke', points: '' });
     pl.dataset.f = 'spark';
-    spark.append(pl);
+    const gl = svgEl('polyline', { fill: 'none', stroke: 'var(--gpu)', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke', points: '' });
+    gl.dataset.f = 'gpuSpark';
+    spark.append(gl, pl);
     cpu.append(spark);
     row.append(cpu, mstat('mem'), mstat('disk'));
     return row;
@@ -316,7 +331,7 @@
     for (const m of state.machines) machines.append(machineColBars(m));
     const accounts = el('section', 'bars-accounts');
     // Two vendor-paired rows under the machine columns: row 1 Codex/Codex/Kimi,
-    // row 2 Claude/Claude/Grok, each card beneath its owning machine column.
+    // row 2 Claude/Claude/Grok.
     const rank = { 'minis-Codex': 0, 'dictator-Codex': 1, 'dictator-Kimi': 2, 'minis-Claude': 3, 'dictator-Claude': 4, grok: 5 };
     const ordered = [...state.accounts].sort((x, y) => (rank[x.id] ?? 99) - (rank[y.id] ?? 99));
     for (const a of ordered) accounts.append(accountCardBars(a));
@@ -369,7 +384,7 @@
     if (!row) return;
     const has = m.sampledAt != null && m.status !== 'connecting' && m.status !== 'offline';
     row.classList.toggle('dimmed', m.status === 'stale' || (m.status === 'offline' && m.sampledAt != null));
-    setText(row, 'host', `${m.name} · ${m.address}`);
+    setText(row, 'host', hostLine(m));
     const upNow = m.uptime != null && m.status === 'live' ? m.uptime + (Date.now() - m.sampledAt) / 1000 : m.uptime;
     setText(row, 'up', m.uptime != null ? `up ${F.fmtUptime(upNow)}` : 'up —');
     patchBadge(row, m.status, m);
@@ -380,6 +395,20 @@
     setColor(row, 'cpuN', F.colorFor(cpu));
     const arc = f(row, 'arc');
     if (arc) { arc.setAttribute('stroke-dasharray', F.dashFor(cpu, 40)); arc.setAttribute('stroke', F.colorFor(cpu)); }
+    const gpu = F.pct(m.gpu);
+    setText(row, 'gpuGaugeN', gpu == null ? '—' : String(gpu));
+    setText(row, 'gpuN', gpu == null ? '—' : `${gpu}%`);
+    setColor(row, 'gpuN', F.colorFor(gpu));
+    const gpuArc = f(row, 'gpuArc');
+    if (gpuArc) { gpuArc.setAttribute('stroke-dasharray', F.dashFor(gpu, 40)); gpuArc.setAttribute('stroke', F.colorFor(gpu)); }
+    const gpuBar = f(row, 'gpuBar');
+    if (gpuBar) { gpuBar.style.width = `${F.clamp(gpu ?? 0)}%`; gpuBar.style.background = F.colorFor(gpu); }
+    const gpuSpark = f(row, 'gpuSpark');
+    if (gpuSpark) gpuSpark.setAttribute('points', F.sparkPoints(m.history, 240, 56, 'gpu'));
+    const hasVram = m.vram != null && m.vramTotal > 0;
+    setText(row, 'vramPct', hasVram ? `VRAM ${F.pct(m.vram)}%` : '');
+    setColor(row, 'vramPct', hasVram ? F.colorFor(m.vram) : '');
+    setText(row, 'vramGB', hasVram ? `${F.fmtGB(m.vramUsed)} / ${F.fmtGB(m.vramTotal)} GB` : '');
     setText(row, 'cores', m.cores ? `${m.cores} cores${m.load != null ? ` · load ${Number(m.load).toFixed(1)}` : ''}` : '');
     const bar = f(row, 'cpuBar');
     if (bar) { bar.style.width = `${F.clamp(cpu ?? 0)}%`; bar.style.background = F.colorFor(cpu); }

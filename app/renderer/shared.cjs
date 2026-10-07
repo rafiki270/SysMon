@@ -63,8 +63,8 @@
   }
 
   // SVG polyline points for a 60s history, handover geometry (240x56 viewport).
-  function sparkPoints(history, width = 240, height = 56) {
-    const vals = (history || []).map((x) => x.cpu).filter((v) => Number.isFinite(v));
+  function sparkPoints(history, width = 240, height = 56, key = 'cpu') {
+    const vals = (history || []).map((x) => x[key]).filter((v) => Number.isFinite(v));
     if (vals.length < 2) return '';
     const n = vals.length;
     return vals.map((v, i) => `${((i / (n - 1)) * width).toFixed(1)},${(height - 1 - (clamp(v) / 100) * (height - 4)).toFixed(1)}`).join(' ');

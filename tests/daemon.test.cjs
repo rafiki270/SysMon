@@ -47,6 +47,10 @@ test('daemon serves hello on connect and broadcasts ticks', async () => {
     const first = JSON.parse(await new Promise((r) => c.on('message', r)));
     assert.strictEqual(first.type, 'metrics');
     assert.ok(Array.isArray(first.history));
+    // GPU is a real percentage or an explicit null, in the reading and its history
+    assert.ok(first.gpu === null || (first.gpu >= 0 && first.gpu <= 100));
+    assert.ok(first.history.every((x) => 'gpu' in x));
+    assert.ok('vram' in first);
     const pushed = JSON.parse(await new Promise((r) => c.on('message', r)));
     assert.ok(pushed.sampledAt >= first.sampledAt);
     c.close();

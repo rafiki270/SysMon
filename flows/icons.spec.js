@@ -8,7 +8,7 @@ test('all Font Awesome icons load and provider icons sit left of percentages in 
     await page.setViewportSize({ width: 1920, height: 720 });
     for (const layout of ['radial', 'bars', 'numerals']) {
       await page.getByTestId(`layout-${layout}`).click();
-      await expect(page.locator('.computer-icon')).toHaveCount(3);
+      await expect(page.locator('.computer-icon')).toHaveCount(4);
       await expect(page.locator('.provider-icon')).toHaveCount(6);
       await expect.poll(() => page.locator('.fa-icon').evaluateAll(images => images.every(i => i.complete && i.naturalWidth > 0))).toBe(true);
       const overlap = await page.locator('[data-a]').evaluateAll(cards => cards.filter(c => {

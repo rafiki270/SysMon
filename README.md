@@ -1,8 +1,8 @@
 # SysMon
 
-Full-screen operations board (Electron) for three machines and six AI-account
+Full-screen operations board (Electron) for four machines and six AI-account
 quota cards. Dark green ops-board styling, three layouts (radial rows, bar
-columns, big numerals with real 60 s CPU sparklines), date/clock header,
+columns, big numerals with real 60 s CPU and GPU sparklines), date/clock header,
 failing-CI panel, system tray.
 
 ## Architecture
@@ -17,8 +17,8 @@ failing-CI panel, system tray.
     remote hosts (no remote install needed for accounts).
   - `link.cjs` — SSH tunnel management to the remote telemetry daemons
     (loopback-to-loopback, reconnect/backoff, stale watchdog).
-- `daemon/` — tiny dependency-free Node telemetry daemon (CPU/mem/disk/uptime/
-  top process every ~3 s, 60 s CPU history) serving WebSocket on
+- `daemon/` — tiny dependency-free Node telemetry daemon (CPU/GPU/mem/disk/
+  uptime/top process every ~3 s, 60 s CPU/GPU history) serving WebSocket on
   **127.0.0.1:7737 only**. See `daemon/README.md`.
 - `app/renderer/` — the three layouts. Values are inserted with
   `textContent`/`createElement` only; remote strings are never treated as
@@ -26,9 +26,10 @@ failing-CI panel, system tray.
 
 Machine telemetry for each non-local host comes from its daemon when one is
 available, reached through SSH tunnels (local ports 17378 Minis / 17379
-dictator / 17380 umac → remote 127.0.0.1:7737); otherwise the app falls back
-to running the collector over SSH stdin. Minis has no daemon, so it always
-uses the SSH collector. No unauthenticated LAN port is ever opened; the
+dictator / 17380 umac / 17381 Maxis → remote 127.0.0.1:7737); otherwise the
+app falls back to running the collector over SSH stdin. Minis has no daemon,
+and neither does Maxis, so both always use the SSH collector (which needs
+Node on the remote PATH). No unauthenticated LAN port is ever opened; the
 daemon refuses non-loopback binds even if the host env var is overridden and
 rejects WebSocket upgrades carrying a browser `Origin`.
 
@@ -39,9 +40,32 @@ rejects WebSocket upgrades carrying a browser `Origin`.
 | Minis    | Windows | `ondre@Minis.local` / `ondre@192.168.1.215`          | collector over SSH |
 | dictator | macOS   | `dictator@dictator.local` / `dictator@192.168.1.229` | daemon (or local)  |
 | umac     | Linux   | `umac@umac.local` / `umac@192.168.1.192`             | daemon (or local)  |
+| Maxis    | Windows | `ondre@Maxis.local` / `ondre@192.168.1.197`          | collector over SSH |
 
-Ubuntu shares a subscription, so only machine metrics are shown for it — no
-duplicate account card.
+The two Windows PCs are labelled by name (**MINIS**, **MAXIS**) beside the
+Windows icon; macOS and Linux keep their OS label.
+
+Only machine metrics are shown for umac and Maxis: umac shares a
+subscription, Maxis has no Claude and its Codex is the same account as
+dictator's — no duplicate account cards.
+
+## GPU
+
+Every machine shows GPU utilization next to CPU: a second gauge in 1a, a
+second bar in 1b, and in 1c a second (blue) line with a smaller percentage.
+It is read without elevated rights, and a source that cannot be read shows
+"—", never 0:
+
+- **NVIDIA** (Maxis) — `nvidia-smi`: busiest card's utilization, plus VRAM
+  used/total, shown under RAM. VRAM appears only where it is reported.
+- **Other Windows GPUs** (Minis) — the busiest engine in the Windows GPU
+  performance counters (what Task Manager shows).
+- **macOS** — `ioreg` IOAccelerator "Device Utilization %".
+- **Linux** — AMD `gpu_busy_percent`; on Intel the share of time the GPU
+  spent out of its RC6 idle state, which is activity rather than load.
+
+dictator and umac report through the telemetry daemon, so GPU needs the
+daemon from this version installed there (`sh daemon/install.sh`).
 
 ## Account providers (honest limitations)
 

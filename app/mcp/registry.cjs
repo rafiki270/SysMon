@@ -39,19 +39,19 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: 
 function createMcpServer(monitor) {
   const server = new McpServer(
     { name: 'sysmon', version: VERSION },
-    { instructions: 'Read-only SysMon operations monitor: machine telemetry (CPU/memory/disk/uptime/top process/history), subscription account quota windows (used/limit as percent and GB, resets, sampled/last-success times, live/stale/offline/auth state), and failing CI pull requests. All values are the app\'s own shared state; nothing is re-polled or fabricated.' },
+    { instructions: 'Read-only SysMon operations monitor: machine telemetry (CPU/GPU/VRAM/memory/disk/uptime/top process/history), subscription account quota windows (used/limit as percent and GB, resets, sampled/last-success times, live/stale/offline/auth state), and failing CI pull requests. All values are the app\'s own shared state; nothing is re-polled or fabricated.' },
   );
 
   server.registerTool('get_stats', {
     title: 'Full monitor snapshot',
-    description: 'Complete SysMon state: every machine (all metrics and CPU history), every account quota window with resets and staleness, CI results, and updatedAt. Read-only.',
+    description: 'Complete SysMon state: every machine (all metrics and CPU/GPU history), every account quota window with resets and staleness, CI results, and updatedAt. Read-only.',
     annotations: READ_ONLY,
   }, async () => toolResult(snapshot(monitor)));
 
   server.registerTool('get_machines', {
     title: 'Machine telemetry',
-    description: 'Per-machine telemetry: status (live/stale/offline/connecting), cpu/mem/disk raw percentages, memory/disk GB, uptime, top process, 60s CPU history, sampled/last-success times, source. Optionally filter by machine id.',
-    inputSchema: { id: z.string().optional().describe('Machine id, e.g. "minis", "dictator", "umac". Omit for all machines.') },
+    description: 'Per-machine telemetry: status (live/stale/offline/connecting), cpu/gpu/mem/disk raw percentages, VRAM where reported, memory/disk GB, uptime, top process, 60s CPU history, sampled/last-success times, source. Optionally filter by machine id.',
+    inputSchema: { id: z.string().optional().describe('Machine id, e.g. "minis", "dictator", "umac", "maxis". Omit for all machines.') },
     annotations: READ_ONLY,
   }, async ({ id } = {}) => {
     const machines = snapshot(monitor).machines;
@@ -89,7 +89,7 @@ function createMcpServer(monitor) {
 
   server.registerResource('machines', 'sysmon://machines', {
     title: 'All machines',
-    description: 'Telemetry for every monitored machine, including CPU history and staleness.',
+    description: 'Telemetry for every monitored machine, including CPU/GPU history and staleness.',
     mimeType: 'application/json',
   }, async (uri) => resourceResult(uri.href, snapshot(monitor).machines));
 
