@@ -5,7 +5,7 @@ const http = require('node:http');
 const net = require('node:net');
 const ws = require('../daemon/ws.cjs');
 const { HostLink, probePort, DAEMON_PORT } = require('../app/link.cjs');
-const { detectLocalId, remoteCommand, powershellCommand, hosts } = require('../app/monitor.cjs');
+const { detectLocalId, remoteCommand } = require('../app/monitor.cjs');
 
 test('detectLocalId selects the right host on each platform', () => {
   assert.strictEqual(detectLocalId({ platform: 'win32', hostname: 'DESKTOP-XYZ' }), 'minis');
@@ -20,15 +20,6 @@ test('remoteCommand is shell-appropriate per host OS', () => {
   assert.strictEqual(remoteCommand({ os: 'WINDOWS' }, 'machine'), 'node - machine'); // PowerShell, system Node
   assert.match(remoteCommand({ os: 'MAC' }, 'accounts'), /^export PATH=.*node - accounts$/);
   assert.match(remoteCommand({ os: 'LINUX' }, 'accounts'), /^export PATH=.*node - accounts$/);
-});
-
-test('Maxis is read through an encoded PowerShell command, not Node', () => {
-  const maxis = hosts.find((h) => h.id === 'maxis');
-  assert.strictEqual(maxis.os, 'WINDOWS');
-  assert.strictEqual(maxis.collector, 'powershell');
-  const cmd = powershellCommand("'a b' | Write-Output");
-  const [, b64] = cmd.match(/^powershell -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)$/);
-  assert.strictEqual(Buffer.from(b64, 'base64').toString('utf16le'), "'a b' | Write-Output");
 });
 
 test('ws server rejects browser Origin upgrades', async () => {

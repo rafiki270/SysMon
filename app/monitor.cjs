@@ -16,10 +16,9 @@ const hosts = [
   { id: 'minis', name: 'Minis', os: 'WINDOWS', address: '192.168.1.215', ssh: 'ondre@Minis.local', fallback: 'ondre@192.168.1.215', localPort: 17378 },
   { id: 'dictator', name: 'dictator', os: 'MAC', address: '192.168.1.229', ssh: 'dictator@dictator.local', fallback: 'dictator@192.168.1.229', localPort: 17379 },
   { id: 'umac', name: 'umac', os: 'LINUX', address: '192.168.1.192', ssh: 'umac@umac.local', fallback: 'umac@192.168.1.192', localPort: 17380 },
-  // Maxis has no Node install, so its metrics come from built-in PowerShell.
-  { id: 'maxis', name: 'Maxis', os: 'WINDOWS', address: '192.168.1.197', ssh: 'ondre@Maxis.local', fallback: 'ondre@192.168.1.197', localPort: 17381, collector: 'powershell' },
+  { id: 'maxis', name: 'Maxis', os: 'WINDOWS', address: '192.168.1.197', ssh: 'ondre@Maxis.local', fallback: 'ondre@192.168.1.197', localPort: 17381 },
 ];
-const ACCOUNT_HOSTS = ['minis', 'dictator']; // umac and Maxis show machine metrics only
+const ACCOUNT_HOSTS = ['minis', 'dictator']; // umac and Maxis share those subscriptions: machine metrics only
 const STALE_AFTER_MS = 12000;
 const source = fs.readFileSync(path.join(__dirname, 'collector.cjs'), 'utf8');
 
@@ -32,34 +31,17 @@ function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = 
   return { win32: 'minis', darwin: 'dictator', linux: 'umac' }[platform] || null;
 }
 
-// Remote shells differ: Minis runs PowerShell (system Node is on PATH), while
+// Remote shells differ: the Windows PCs run PowerShell (system Node is on PATH), while
 // macOS/Linux need the user's local Node prepended to PATH first.
 function remoteCommand(host, mode) {
   if (host.os === 'WINDOWS') return `node - ${mode}`;
   return "export PATH=\"$HOME/.local/node/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; node - " + mode;
 }
 
-// Machine metrics for a Windows host without Node, in the collector's shape.
-// Sent as -EncodedCommand so no remote shell quoting applies.
-const POWERSHELL_MACHINE = [
-  "$ProgressPreference='SilentlyContinue'",
-  '$o=Get-CimInstance Win32_OperatingSystem',
-  "$d=Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"",
-  '$c=(Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average',
-  '$mt=[double]$o.TotalVisibleMemorySize*1024',
-  '$mu=$mt-[double]$o.FreePhysicalMemory*1024',
-  "@{hostname=$env:COMPUTERNAME;os='WINDOWS';cores=[Environment]::ProcessorCount;cpu=$(if($null -eq $c){$null}else{[double]$c});mem=100*$mu/$mt;memUsed=$mu/1e9;memTotal=$mt/1e9;disk=$(if($d.Size){100*($d.Size-$d.FreeSpace)/$d.Size}else{$null});diskFree=$(if($d.Size){$d.FreeSpace/1e9}else{$null});uptime=((Get-Date)-$o.LastBootUpTime).TotalSeconds;load=$null;topProc=$null;topPct=$null;sampledAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()} | ConvertTo-Json -Compress",
-].join('; ');
-function powershellCommand(script) {
-  return `powershell -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`;
-}
-
 function sshCollect(host, mode, target = host.ssh) {
   return new Promise((resolve, reject) => {
-    const viaPowershell = host.collector === 'powershell';
-    if (viaPowershell && mode !== 'machine') return reject(new Error('no collector'));
     // Source is sent over encrypted stdin. No remote installation or credentials copy.
-    const p = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, viaPowershell ? powershellCommand(POWERSHELL_MACHINE) : remoteCommand(host, mode)], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', target, remoteCommand(host, mode)], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '', done = false;
     const timer = setTimeout(() => finish(new Error('timeout')), 45000);
     function finish(e, v) { if (done) return; done = true; clearTimeout(timer); p.kill(); e ? reject(e) : resolve(v); }
@@ -68,7 +50,6 @@ function sshCollect(host, mode, target = host.ssh) {
     p.stderr.resume();
     p.stdout.on('data', d => { output += d.toString(); if (output.length > 2e6) finish(new Error('oversized')); });
     p.on('close', code => { if (code !== 0) return finish(new Error('offline')); try { finish(null, JSON.parse(output.trim())); } catch { finish(new Error('invalid collector response')); } });
-    if (viaPowershell) return p.stdin.end();
     // node-stdin sets require.main!==module, so invoke the runner explicitly.
     p.stdin.end(source + '\n;module.exports.run(' + JSON.stringify(mode) + ').then(x=>process.stdout.write(JSON.stringify(x)+"\\n")).catch(()=>{process.stdout.write(JSON.stringify({status:"unavailable"})+"\\n");process.exitCode=1;});');
   }).catch(e => { if (target === host.ssh && host.fallback) return sshCollect(host, mode, host.fallback); throw e; });
@@ -222,7 +203,7 @@ class Monitor extends EventEmitter {
   start() {
     this.started = true;
     hosts.forEach(h => this.startHost(h));
-    hosts.filter(h => ACCOUNT_HOSTS.includes(h.id)).forEach(h => this.accounts(h)); // Others share a subscription; no duplicate account cards.
+    hosts.filter(h => ACCOUNT_HOSTS.includes(h.id)).forEach(h => this.accounts(h)); // The others share a subscription; no duplicate account cards.
     this.ci();
     this.watchdog();
   }
@@ -235,4 +216,4 @@ class Monitor extends EventEmitter {
     this.links = [];
   }
 }
-module.exports = { Monitor, hosts, sshCollect, reconcileAccount, detectLocalId, remoteCommand, powershellCommand, POWERSHELL_MACHINE, STALE_AFTER_MS };
+module.exports = { Monitor, hosts, sshCollect, reconcileAccount, detectLocalId, remoteCommand, STALE_AFTER_MS };
