@@ -116,3 +116,9 @@ test('boardStatus reflects worst truthful state', () => {
   assert.strictEqual(F.boardStatus([{ status: 'live' }, { status: 'stale' }]), 'degraded');
   assert.strictEqual(F.boardStatus([{ status: 'offline' }, { status: 'offline' }]), 'offline');
 });
+
+test('sparkPoints draws the GPU series from the same history', () => {
+  const h = [{ cpu: 10, gpu: 0 }, { cpu: 10, gpu: 100 }, { cpu: 10, gpu: null }];
+  assert.strictEqual(F.sparkPoints(h, 240, 56, 'gpu'), '0.0,55.0 240.0,3.0'); // null sample skipped
+  assert.strictEqual(F.sparkPoints([{ cpu: 1 }, { cpu: 2 }], 240, 56, 'gpu'), ''); // no GPU data, no line
+});

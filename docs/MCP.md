@@ -51,7 +51,8 @@ Authorization: Bearer <token from the file above>
 Tools (all annotated read-only):
 
 - `get_stats` — complete snapshot: all machines (every metric, raw
-  percentages and GB, 60 s CPU history, sampled/last-success times,
+  percentages and GB, GPU utilization and VRAM where reported, 60 s CPU/GPU
+  history, sampled/last-success times,
   live/stale/offline state), all accounts (every quota window with resets and
   staleness), CI results, `updatedAt`.
 - `get_machines` — machine telemetry, optional `id` filter.

@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const os = require('node:os');
 const { EventEmitter } = require('node:events');
-const { machine, accounts, claude, kimi, codex, kimiWindows, codexWindows } = require('../app/collector.cjs');
+const { machine, accounts, claude, kimi, codex, kimiWindows, codexWindows, parseNvidia, parseIoreg, rc6Busy } = require('../app/collector.cjs');
 
 test('kimiWindows maps all three live schema shapes; malformed never becomes 0', () => {
   const w = kimiWindows({
@@ -194,4 +194,24 @@ test('machine collector returns real local metrics (host resources only)', async
   assert.ok(r.cpu === null || (r.cpu >= 0 && r.cpu <= 100));
   assert.ok(r.mem > 0 && r.mem <= 100);
   assert.ok(r.uptime > 0);
+});
+
+test('GPU parsers read real values and never turn missing data into 0', () => {
+  // nvidia-smi: busiest GPU, VRAM summed across cards, MiB -> GiB
+  assert.deepStrictEqual(parseNvidia('38, 20787, 24576\n'), { gpu: 38, vram: 100 * 20787 / 24576, vramUsed: 20787 / 1024, vramTotal: 24 });
+  const two = parseNvidia('10, 1024, 8192\n90, 3072, 8192\n');
+  assert.strictEqual(two.gpu, 90);
+  assert.strictEqual(two.vramUsed, 4);
+  assert.strictEqual(two.vramTotal, 16);
+  assert.strictEqual(parseNvidia(''), null);
+  assert.strictEqual(parseNvidia('[N/A], [N/A], [N/A]'), null);
+  // ioreg: busiest accelerator; no accelerator line means unknown
+  assert.strictEqual(parseIoreg('"PerformanceStatistics" = {"Device Utilization %"=72,"Renderer Utilization %"=70}'), 72);
+  assert.strictEqual(parseIoreg('"Device Utilization %"=5 ... "Device Utilization %"=40'), 40);
+  assert.strictEqual(parseIoreg('no accelerators'), null);
+  // Intel RC6: fully idle second is 0%, half idle is 50%, bad samples are unknown
+  assert.strictEqual(rc6Busy({ at: 1000, ms: 500 }, { at: 2000, ms: 1500 }), 0);
+  assert.strictEqual(rc6Busy({ at: 1000, ms: 500 }, { at: 2000, ms: 1000 }), 50);
+  assert.strictEqual(rc6Busy(null, { at: 2000, ms: 1000 }), null);
+  assert.strictEqual(rc6Busy({ at: 2000, ms: 1 }, { at: 2000, ms: 1 }), null);
 });

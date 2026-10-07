@@ -26,11 +26,12 @@ test('collector-source metrics build a local 60s ring', () => {
   const host = hosts.find((h) => h.id === 'umac');
   const now = Date.now();
   m.applyMetrics(host, { source: 'collector', cpu: 10, sampledAt: now - 61000 });
-  m.applyMetrics(host, { source: 'collector', cpu: 20, sampledAt: now });
+  m.applyMetrics(host, { source: 'collector', cpu: 20, gpu: 35, sampledAt: now });
   const s = m.machine('umac');
   assert.strictEqual(s.cpu, 20);
   assert.strictEqual(s.history.length, 1); // older than 60s trimmed
   assert.strictEqual(s.history[0].cpu, 20);
+  assert.strictEqual(s.history[0].gpu, 35);
 });
 
 test('degrade preserves last valid reading as stale instead of zeroing', () => {

@@ -1,7 +1,7 @@
 # SysMon telemetry daemon
 
 Tiny dependency-free Node daemon that samples the local machine every ~3 s
-(CPU, memory, disk, uptime, top process, 60 s CPU history) and serves it over
+(CPU, GPU, memory, disk, uptime, top process, 60 s CPU/GPU history) and serves it over
 WebSocket. The SysMon app reaches it through an SSH tunnel; no LAN port is
 ever exposed.
 

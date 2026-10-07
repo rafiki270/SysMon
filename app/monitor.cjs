@@ -98,7 +98,7 @@ class Monitor extends EventEmitter {
     const { type, source: via, history, ...fields } = reading;
     Object.assign(m, fields, { status: 'live', source: via, lastSuccessAt: fields.sampledAt || Date.now() });
     if (Array.isArray(history) && history.length) m.history = history.filter(x => x && Number.isFinite(x.cpu));
-    else if (Number.isFinite(m.cpu)) m.history = [...m.history.filter(x => x.at > Date.now() - 60000), { at: m.sampledAt, cpu: m.cpu }];
+    else if (Number.isFinite(m.cpu)) m.history = [...m.history.filter(x => x.at > Date.now() - 60000), { at: m.sampledAt, cpu: m.cpu, gpu: Number.isFinite(m.gpu) ? m.gpu : null }];
     this.publish();
   }
   degrade(host, status) {

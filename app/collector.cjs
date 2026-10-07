@@ -14,13 +14,41 @@ const auth = (vendor, message) => ({vendor, status: 'auth', message, windows: []
 const isAuthError = e => e.status === 401 || e.status === 403 || /401|403|unauthorized|revoked/i.test(String(e?.rpcMessage || ''));
 async function command(file, args) { return (await exec(file, args, {timeout: 10000, windowsHide:true, maxBuffer:1024*1024})).stdout.trim(); }
 function cpuSnapshot() { return os.cpus().reduce((a,c) => { a.idle+=c.times.idle; a.total+=Object.values(c.times).reduce((x,y)=>x+y,0); return a; }, {idle:0,total:0}); }
+// GPU utilization without elevated rights; anything unreadable stays null.
+const pctOrNull = v => Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
+// nvidia-smi rows "util, MiB used, MiB total": busiest GPU, VRAM summed, in GiB.
+function parseNvidia(out) {
+  const rows=String(out||'').split('\n').map(l=>l.split(',').map(x=>Number(x.trim()))).filter(r=>r.length===3&&r.every(Number.isFinite)&&r[2]>0);
+  if(!rows.length) return null;
+  const used=rows.reduce((s,r)=>s+r[1],0), total=rows.reduce((s,r)=>s+r[2],0);
+  return {gpu:pctOrNull(Math.max(...rows.map(r=>r[0]))),vram:pctOrNull(100*used/total),vramUsed:used/1024,vramTotal:total/1024};
+}
+async function nvidia() { try { return parseNvidia(await command('nvidia-smi',['--query-gpu=utilization.gpu,memory.used,memory.total','--format=csv,noheader,nounits'])); } catch { return null; } }
+// macOS: IOAccelerator PerformanceStatistics, busiest accelerator.
+function parseIoreg(out) { const v=[...String(out||'').matchAll(/"Device Utilization %"=(\d+)/g)].map(m=>Number(m[1])); return v.length?pctOrNull(Math.max(...v)):null; }
+const drmCards = () => { try { return fs.readdirSync('/sys/class/drm').filter(x=>/^card\d+$/.test(x)); } catch { return []; } };
+// Intel on Linux: share of time the GPU spent out of its RC6 idle state.
+function rc6Snapshot() {
+  for(const d of drmCards()) for(const p of [`/sys/class/drm/${d}/gt/gt0/rc6_residency_ms`,`/sys/class/drm/${d}/power/rc6_residency_ms`]) {
+    try { const ms=Number(fs.readFileSync(p,'utf8')); if(Number.isFinite(ms)) return {at:Date.now(),ms}; } catch {}
+  }
+  return null;
+}
+function rc6Busy(a,b) { return a&&b&&b.at>a.at ? pctOrNull(100*(1-(b.ms-a.ms)/(b.at-a.at))) : null; }
+// AMD on Linux reports utilization directly.
+function sysfsBusy() {
+  for(const d of drmCards()) { try { const v=Number(fs.readFileSync(`/sys/class/drm/${d}/device/gpu_busy_percent`,'utf8')); if(Number.isFinite(v)) return pctOrNull(v); } catch {} }
+  return null;
+}
 async function machine() {
-  const a=cpuSnapshot(); await delay(1000); const b=cpuSnapshot();
+  const linux=os.platform()==='linux';
+  const a=cpuSnapshot(), ga=linux?rc6Snapshot():null; const nv=nvidia(); await delay(1000); const b=cpuSnapshot(), gb=linux?rc6Snapshot():null;
+  let gpu=null;
   const cpu=b.total>a.total ? 100*(1-(b.idle-a.idle)/(b.total-a.total)) : null;
   let memTotal=os.totalmem(), memUsed=memTotal-os.freemem(), diskTotal=null, diskFree=null, topProc=null, topPct=null;
   if(os.platform()==='win32') {
-    const raw=await command('powershell.exe',['-NoProfile','-NonInteractive','-Command', '$o=Get-CimInstance Win32_OperatingSystem; $d=Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'C:\'"; @{memTotal=[double]$o.TotalVisibleMemorySize*1024;memUsed=([double]$o.TotalVisibleMemorySize-[double]$o.FreePhysicalMemory)*1024;diskTotal=[double]$d.Size;diskFree=[double]$d.FreeSpace} | ConvertTo-Json -Compress']);
-    const v=JSON.parse(raw); ({memTotal,memUsed,diskTotal,diskFree}=v);
+    const raw=await command('powershell.exe',['-NoProfile','-NonInteractive','-Command', '$o=Get-CimInstance Win32_OperatingSystem; $d=Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'C:\'"; $g=Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue | Group-Object {$_.Name -replace \'^pid_\\d+_\',\'\'} | ForEach-Object {($_.Group | Measure-Object UtilizationPercentage -Sum).Sum} | Measure-Object -Maximum; @{gpu=$(if($g.Count){[double]$g.Maximum}else{$null});memTotal=[double]$o.TotalVisibleMemorySize*1024;memUsed=([double]$o.TotalVisibleMemorySize-[double]$o.FreePhysicalMemory)*1024;diskTotal=[double]$d.Size;diskFree=[double]$d.FreeSpace} | ConvertTo-Json -Compress']);
+    const v=JSON.parse(raw); ({memTotal,memUsed,diskTotal,diskFree}=v); gpu=pctOrNull(v.gpu);
   } else {
     const disk=fs.statfsSync('/'); diskTotal=Number(disk.blocks)*Number(disk.bsize);diskFree=Number(disk.bavail)*Number(disk.bsize);
     if(os.platform()==='linux') {
@@ -29,11 +57,15 @@ async function machine() {
       const vm=await command('/usr/bin/vm_stat',[]); const page=Number(vm.match(/page size of (\d+)/)?.[1] || 4096);
       const pages = label => Number(vm.match(new RegExp(label+':\\s+(\\d+)'))?.[1] || 0);
       memUsed=(pages('Pages active')+pages('Pages wired down')+pages('Pages occupied by compressor'))*page;
+      try { gpu=parseIoreg(await command('/usr/sbin/ioreg',['-r','-d','1','-w','0','-c','IOAccelerator'])); } catch {}
     }
+    if(linux) gpu=sysfsBusy() ?? rc6Busy(ga,gb);
     const procs=(await command('/bin/ps',['-A','-o','pcpu=,comm='])).split('\n').map(x=>x.trim().match(/^([\d.]+)\s+(.+)$/)).filter(Boolean).sort((x,y)=>Number(y[1])-Number(x[1]));
     if(procs[0]) {topProc=path.basename(procs[0][2]);topPct=Number(procs[0][1]);}
   }
-  return {hostname:os.hostname(),os:os.platform()==='win32'?'WINDOWS':os.platform()==='darwin'?'MAC':'LINUX',cores:os.cpus().length,cpu,mem:100*memUsed/memTotal,memUsed:memUsed/1e9,memTotal:memTotal/1e9,disk:diskTotal?100*(diskTotal-diskFree)/diskTotal:null,diskFree:diskFree==null?null:diskFree/1e9,uptime:os.uptime(),load:os.platform()==='win32'?null:os.loadavg()[0],topProc,topPct,sampledAt:Date.now()};
+  // A discrete NVIDIA card is the GPU that matters, and the only one reporting VRAM.
+  const n=await nv; if(n) gpu=n.gpu;
+  return {hostname:os.hostname(),os:os.platform()==='win32'?'WINDOWS':os.platform()==='darwin'?'MAC':'LINUX',cores:os.cpus().length,cpu,gpu,vram:n?n.vram:null,vramUsed:n?n.vramUsed:null,vramTotal:n?n.vramTotal:null,mem:100*memUsed/memTotal,memUsed:memUsed/1e9,memTotal:memTotal/1e9,disk:diskTotal?100*(diskTotal-diskFree)/diskTotal:null,diskFree:diskFree==null?null:diskFree/1e9,uptime:os.uptime(),load:os.platform()==='win32'?null:os.loadavg()[0],topProc,topPct,sampledAt:Date.now()};
 }
 async function fetchJson(url,token,headers={}) {
   const r=await fetch(url,{headers:{Authorization:`Bearer ${token}`,...headers},signal:AbortSignal.timeout(15000),redirect:'error'});
@@ -191,5 +223,5 @@ async function accounts(deps = {}) {
   return Promise.all([['Codex', codex], ['Claude', claude], ['Kimi', kimi]].map(async ([vendor, f]) => { try { return await f(deps[vendor.toLowerCase()] || {}); } catch (e) { if (isAuthError(e)) return auth(vendor, vendor === 'Codex' ? 'Open Codex and sign in again' : 'Open the CLI and sign in again'); return { vendor, status: 'unavailable', message: safeError(e), retryAfter: e.status === 429 ? Math.max(300, Number(e.retryAfter) || 0) : null, windows: [] }; } }));
 }
 async function run(mode) { if (mode === 'machine') return machine(); if (mode === 'accounts') return accounts(); return { machine: await machine(), accounts: await accounts() }; }
-module.exports = { machine, accounts, run, kimiWindows, codexWindows, codex, claude, kimi };
+module.exports = { machine, accounts, run, parseNvidia, parseIoreg, rc6Busy, kimiWindows, codexWindows, codex, claude, kimi };
 if (require.main === module) run(process.argv[2] || 'all').then(x => process.stdout.write(JSON.stringify(x) + '\n')).catch(() => { process.stdout.write(JSON.stringify({ status: 'unavailable' }) + '\n'); process.exitCode = 1; });
