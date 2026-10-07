@@ -51,7 +51,7 @@ function createMcpServer(monitor) {
   server.registerTool('get_machines', {
     title: 'Machine telemetry',
     description: 'Per-machine telemetry: status (live/stale/offline/connecting), cpu/mem/disk raw percentages, memory/disk GB, uptime, top process, 60s CPU history, sampled/last-success times, source. Optionally filter by machine id.',
-    inputSchema: { id: z.string().optional().describe('Machine id, e.g. "minis", "dictator", "umac". Omit for all machines.') },
+    inputSchema: { id: z.string().optional().describe('Machine id, e.g. "minis", "dictator", "umac", "maxis". Omit for all machines.') },
     annotations: READ_ONLY,
   }, async ({ id } = {}) => {
     const machines = snapshot(monitor).machines;

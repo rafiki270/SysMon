@@ -24,6 +24,7 @@ function baseFixture(now = Date.now()) {
         { id: 'minis', status: 'live', source: 'local', cores: 16, cpu: 74, mem: 82, memUsed: 52.4, memTotal: 64, disk: 54, diskFree: 460, uptime: 302400, load: null, topProc: 'Code.exe', topPct: 44, sampledAt: now, history: history(now, 70) },
         { id: 'dictator', status: 'live', source: 'daemon', cores: 10, cpu: 21, mem: 47, memUsed: 16.1, memTotal: 34.3, disk: 88, diskFree: 127, uptime: 852000, load: 2.1, topProc: 'node', topPct: 12, sampledAt: now, history: history(now, 22) },
         { id: 'umac', status: 'offline', sampledAt: null, history: [] },
+        { id: 'maxis', status: 'live', source: 'collector', cores: 32, cpu: 16, mem: 23, memUsed: 30.6, memTotal: 134.8, disk: 11, diskFree: 1780, uptime: 6469, load: null, topProc: null, topPct: null, sampledAt: now, history: history(now, 16) },
       ],
       accounts: [
         { id: 'minis-Codex', status: 'live', windows: [{ label: 'Codex · weekly', used: 100, resetAt: now + 4.5 * 86400000, main: true }, { label: 'gpt-reserve · weekly', used: 0, resetAt: now + 86400000 }], sampledAt: now },

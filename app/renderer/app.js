@@ -39,6 +39,9 @@
   function computerIcon(m) {
     return icon({ WINDOWS: 'windows', MAC: 'apple', LINUX: 'linux' }[m.os] || 'computer', m.os, 'computer-icon');
   }
+  // Windows PCs are told apart by name; the icon already says Windows.
+  function machineLabel(m) { return m.os === 'WINDOWS' ? String(m.name || m.id).toUpperCase() : m.os; }
+  function hostLine(m) { return m.os === 'WINDOWS' ? m.address : `${m.name} · ${m.address}`; }
   function quotaHeadline(a, used) {
     const row = el('div', 'quota-headline');
     row.append(providerIcon(a), used);
@@ -118,7 +121,7 @@
   function machineIdentity(m) {
     const id = el('div', 'm-id');
     const osRow = el('div', 'os');
-    osRow.append(computerIcon(m), el('span', null, m.os));
+    osRow.append(computerIcon(m), el('span', null, machineLabel(m)));
     id.append(osRow);
     id.append(mark(el('div', 'host', ''), 'host'));
     id.append(mark(el('div', 'up', ''), 'up'));
@@ -144,7 +147,7 @@
     const col = el('div', 'bcol');
     col.dataset.m = m.id; col.dataset.testid = `machine-${m.id}`;
     const head = el('div', 'head');
-    const os = el('span', 'os'); os.append(computerIcon(m), el('span', null, m.os));
+    const os = el('span', 'os'); os.append(computerIcon(m), el('span', null, machineLabel(m)));
     head.append(os);
     head.append(mark(el('span', 'host', ''), 'host'));
     col.append(head);
@@ -316,7 +319,7 @@
     for (const m of state.machines) machines.append(machineColBars(m));
     const accounts = el('section', 'bars-accounts');
     // Two vendor-paired rows under the machine columns: row 1 Codex/Codex/Kimi,
-    // row 2 Claude/Claude/Grok, each card beneath its owning machine column.
+    // row 2 Claude/Claude/Grok.
     const rank = { 'minis-Codex': 0, 'dictator-Codex': 1, 'dictator-Kimi': 2, 'minis-Claude': 3, 'dictator-Claude': 4, grok: 5 };
     const ordered = [...state.accounts].sort((x, y) => (rank[x.id] ?? 99) - (rank[y.id] ?? 99));
     for (const a of ordered) accounts.append(accountCardBars(a));
@@ -369,7 +372,7 @@
     if (!row) return;
     const has = m.sampledAt != null && m.status !== 'connecting' && m.status !== 'offline';
     row.classList.toggle('dimmed', m.status === 'stale' || (m.status === 'offline' && m.sampledAt != null));
-    setText(row, 'host', `${m.name} · ${m.address}`);
+    setText(row, 'host', hostLine(m));
     const upNow = m.uptime != null && m.status === 'live' ? m.uptime + (Date.now() - m.sampledAt) / 1000 : m.uptime;
     setText(row, 'up', m.uptime != null ? `up ${F.fmtUptime(upNow)}` : 'up —');
     patchBadge(row, m.status, m);

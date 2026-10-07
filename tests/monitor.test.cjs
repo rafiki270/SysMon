@@ -3,11 +3,12 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { Monitor, reconcileAccount, hosts } = require('../app/monitor.cjs');
 
-test('six account cards: Codex+Claude on Minis and dictator, Kimi on dictator, Grok web; none for umac', () => {
+test('six account cards: Codex+Claude on Minis and dictator, Kimi on dictator, Grok web; none for umac or Maxis', () => {
   const m = new Monitor();
   const ids = m.state.accounts.map((a) => a.id);
   assert.deepStrictEqual(ids.sort(), ['dictator-Claude', 'dictator-Codex', 'dictator-Kimi', 'grok', 'minis-Claude', 'minis-Codex'].sort());
-  assert.ok(!m.state.accounts.some((a) => a.host === 'umac'));
+  assert.ok(!m.state.accounts.some((a) => a.host === 'umac' || a.host === 'maxis'));
+  assert.deepStrictEqual(m.state.machines.map((x) => x.id), ['minis', 'dictator', 'umac', 'maxis']);
 });
 
 test('applyMetrics stores real values and daemon history; never fabricates', () => {

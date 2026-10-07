@@ -15,9 +15,15 @@ const LAYOUTS = ['radial', 'bars', 'numerals'];
 
 async function expectVisibleText(page) {
   // Nonempty machine and account text — an empty shell is not a render.
-  await expect(page.locator('[data-m]')).toHaveCount(3);
+  await expect(page.locator('[data-m]')).toHaveCount(4);
   await expect(page.locator('[data-a]')).toHaveCount(6);
-  await expect(page.locator('[data-m="minis"] .host').first()).toContainText('Minis');
+  // Windows PCs are labelled by name beside the Windows icon, never "WINDOWS".
+  for (const [id, label] of [['minis', 'MINIS'], ['maxis', 'MAXIS']]) {
+    await expect(page.locator(`[data-m="${id}"] .os`).first()).toHaveText(label);
+    await expect(page.locator(`[data-m="${id}"] .computer-icon`).first()).toHaveAttribute('data-icon', 'windows');
+  }
+  await expect(page.locator('#board')).not.toContainText('WINDOWS');
+  await expect(page.locator('[data-m="dictator"] .os').first()).toHaveText('MAC');
   await expect(page.locator('[data-a="dictator-Kimi"] .vendor').first()).toContainText('Kimi');
   const cpuText = await page.locator('[data-m="minis"]').first().textContent();
   expect(cpuText).toMatch(/74/);

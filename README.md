@@ -1,6 +1,6 @@
 # SysMon
 
-Full-screen operations board (Electron) for three machines and six AI-account
+Full-screen operations board (Electron) for four machines and six AI-account
 quota cards. Dark green ops-board styling, three layouts (radial rows, bar
 columns, big numerals with real 60 s CPU sparklines), date/clock header,
 failing-CI panel, system tray.
@@ -26,9 +26,10 @@ failing-CI panel, system tray.
 
 Machine telemetry for each non-local host comes from its daemon when one is
 available, reached through SSH tunnels (local ports 17378 Minis / 17379
-dictator / 17380 umac → remote 127.0.0.1:7737); otherwise the app falls back
-to running the collector over SSH stdin. Minis has no daemon, so it always
-uses the SSH collector. No unauthenticated LAN port is ever opened; the
+dictator / 17380 umac / 17381 Maxis → remote 127.0.0.1:7737); otherwise the
+app falls back to running the collector over SSH stdin. Minis has no daemon,
+so it always uses the SSH collector. Maxis has no Node either, so its metrics
+are read by a built-in PowerShell command over SSH (no top process). No unauthenticated LAN port is ever opened; the
 daemon refuses non-loopback binds even if the host env var is overridden and
 rejects WebSocket upgrades carrying a browser `Origin`.
 
@@ -39,9 +40,13 @@ rejects WebSocket upgrades carrying a browser `Origin`.
 | Minis    | Windows | `ondre@Minis.local` / `ondre@192.168.1.215`          | collector over SSH |
 | dictator | macOS   | `dictator@dictator.local` / `dictator@192.168.1.229` | daemon (or local)  |
 | umac     | Linux   | `umac@umac.local` / `umac@192.168.1.192`             | daemon (or local)  |
+| Maxis    | Windows | `ondre@Maxis.local` / `ondre@192.168.1.197`          | PowerShell over SSH |
 
-Ubuntu shares a subscription, so only machine metrics are shown for it — no
-duplicate account card.
+The two Windows PCs are labelled by name (**MINIS**, **MAXIS**) beside the
+Windows icon; macOS and Linux keep their OS label.
+
+Only machine metrics are shown for umac and Maxis — no duplicate account
+cards.
 
 ## Account providers (honest limitations)
 

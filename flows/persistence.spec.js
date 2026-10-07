@@ -34,7 +34,7 @@ test('invalid stored layout falls back to radial without crashing', async () => 
   const { app, page, errors } = await launch(baseFixture(), { userdata: dir });
   try {
     await expect(page.locator('#board')).toHaveClass(/lay-radial/);
-    await expect(page.locator('[data-m]')).toHaveCount(3);
+    await expect(page.locator('[data-m]')).toHaveCount(4);
     expect(errors).toEqual([]);
   } finally {
     await app.close();

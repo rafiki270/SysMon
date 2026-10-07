@@ -4,8 +4,8 @@
 //    own grid track (computed track geometry, not hard-coded pixels) and never
 //    touches the CPU block next to it.
 //  - 1b: the machine section is shortened so the six accounts get a real two
-//    row × three column grid, ordered by vendor pairs under their machine
-//    columns, at every target resolution.
+//    row × three column grid, ordered by vendor pairs, under one row of four
+//    machine columns, at every target resolution.
 const { test, expect } = require('@playwright/test');
 const { launch, baseFixture } = require('./helpers.cjs');
 
@@ -39,7 +39,7 @@ for (const res of RESOLUTIONS) {
       for (const layout of ['radial', 'numerals']) {
         await page.click(`[data-testid="layout-${layout}"]`);
         await expect(page.locator('#board')).toHaveClass(new RegExp(`lay-${layout}`));
-        for (const m of ['minis', 'dictator', 'umac']) {
+        for (const m of ['minis', 'dictator', 'umac', 'maxis']) {
           const rowSel = `[data-m="${m}"]`;
           const stats = page.locator(`${rowSel} .mstat`);
           await expect(stats).toHaveCount(2);
@@ -79,7 +79,7 @@ for (const res of RESOLUTIONS) {
       await expect(page.locator('#board')).toHaveClass(/lay-bars/);
       const cards = page.locator('.bacct');
       await expect(cards).toHaveCount(6);
-      // vendor-paired rows beneath their machine columns
+      // vendor-paired rows
       const order = await page.evaluate(() => [...document.querySelectorAll('.bacct')].map(c => c.dataset.a));
       expect(order).toEqual(['minis-Codex', 'dictator-Codex', 'dictator-Kimi', 'minis-Claude', 'dictator-Claude', 'grok']);
       const geo = await page.evaluate(() => {
@@ -103,10 +103,15 @@ for (const res of RESOLUTIONS) {
       // machine section shortened: accounts take a real share of the column
       expect(geo.accounts.height).toBeGreaterThanOrEqual(geo.left.height * 0.4);
       expect(geo.machines.height).toBeLessThanOrEqual(geo.left.height * 0.58);
-      // account columns sit directly under their machine columns
+      // four equal machine columns in one row, spanning the same width as the accounts
+      expect(geo.cols.length).toBe(4);
+      expect(new Set(geo.cols.map(c => Math.round(c.top))).size).toBe(1);
+      for (const c of geo.cols) expect(Math.abs(c.width - geo.machines.width / 4)).toBeLessThanOrEqual(2);
       expect(Math.abs(geo.cards[0].left - geo.cols[0].left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(geo.cards[1].left - geo.cols[1].left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(geo.cards[2].left - geo.cols[2].left)).toBeLessThanOrEqual(2);
+      expect(Math.abs(geo.machines.width - geo.accounts.width)).toBeLessThanOrEqual(2);
+      // no machine column clips its name, address or numbers
+      const clipped = await page.evaluate(() => [...document.querySelectorAll('.bcol')].filter(c => c.scrollWidth > c.clientWidth + 1 || c.scrollHeight > c.clientHeight + 1).map(c => c.dataset.m));
+      expect(clipped).toEqual([]);
       expect(errors).toEqual([]);
     } finally {
       await app.close();

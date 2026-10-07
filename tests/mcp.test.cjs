@@ -255,7 +255,7 @@ test('resources read deep-equal state; templates enumerate live ids; unknown ids
     assert.deepStrictEqual(JSON.parse(ci.contents[0].text), expected.ci);
 
     const { resources } = await client.listResources();
-    for (const id of ['minis', 'dictator', 'umac']) assert.ok(resources.some((r) => r.uri === `sysmon://machines/${id}`), 'template list enumerates machines');
+    for (const id of ['minis', 'dictator', 'umac', 'maxis']) assert.ok(resources.some((r) => r.uri === `sysmon://machines/${id}`), 'template list enumerates machines');
     assert.ok(resources.some((r) => r.uri === 'sysmon://accounts/dictator-Kimi'), 'template list enumerates accounts');
 
     await assert.rejects(client.readResource({ uri: 'sysmon://machines/nope' }), /Unknown machine id/);

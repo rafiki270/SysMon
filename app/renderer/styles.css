@@ -76,7 +76,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 /* ---------- layout 1a: radial rows ---------- */
 .lay-radial { grid-template-rows: 44px minmax(0, 1fr); }
 .radial-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 27%) minmax(230px, 20%); min-height: 0; }
-.radial-machines { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); border-right: 1px solid var(--line); }
+.radial-machines { display: grid; grid-auto-rows: minmax(0, 1fr); border-right: 1px solid var(--line); }
 .mrow {
   display: grid; grid-template-columns: minmax(120px, .9fr) minmax(150px, 1.1fr) minmax(90px, .7fr) minmax(90px, .7fr);
   align-items: center; padding: 0 clamp(10px, 1.2vw, 24px); gap: clamp(8px, 1vw, 16px);
@@ -124,7 +124,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 /* ---------- layout 1b: bar columns ---------- */
 .lay-bars { grid-template-columns: minmax(0, 1fr) clamp(240px, 20%, 380px); grid-template-rows: minmax(0, 1fr); }
 .bars-left { display: grid; grid-template-rows: minmax(0, 5fr) minmax(0, 6fr); border-right: 1px solid var(--line); min-height: 0; }
-.bars-machines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; }
+.bars-machines { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); min-height: 0; }
 .bcol {
   padding: clamp(8px, 1.2vw, 24px) clamp(10px, 1.4vw, 28px);
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
@@ -161,7 +161,7 @@ button.link:hover { background: rgba(232,168,56,.12); }
 
 /* ---------- layout 1c: big numerals + sparklines ---------- */
 .lay-numerals { grid-template-columns: minmax(0, 1fr) clamp(280px, 24%, 460px) clamp(230px, 19%, 380px); grid-template-rows: minmax(0, 1fr); }
-.num-machines { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); border-right: 1px solid var(--line); }
+.num-machines { display: grid; grid-auto-rows: minmax(0, 1fr); border-right: 1px solid var(--line); }
 .nrow {
   display: grid; grid-template-columns: minmax(110px, .8fr) minmax(160px, 1.4fr) minmax(90px, .7fr) minmax(90px, .7fr);
   align-items: center; gap: clamp(14px, 1.6vw, 36px); padding: 0 clamp(10px, 1.4vw, 28px);
