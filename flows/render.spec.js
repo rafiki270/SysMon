@@ -1,6 +1,6 @@
 'use strict';
 // Every layout must boot without renderer exceptions, show real fixture
-// values for 4 machines + 6 account cards, and keep all content inside the
+// values for 5 machines + 6 account cards, and keep all content inside the
 // viewport at the actual target resolutions (1920x720 secondary monitor,
 // 1920x1080 primary, 1366x768 small laptop).
 const { test, expect } = require('@playwright/test');
@@ -15,7 +15,7 @@ const LAYOUTS = ['radial', 'bars', 'numerals'];
 
 async function expectVisibleText(page) {
   // Nonempty machine and account text — an empty shell is not a render.
-  await expect(page.locator('[data-m]')).toHaveCount(4);
+  await expect(page.locator('[data-m]')).toHaveCount(5);
   await expect(page.locator('[data-a]')).toHaveCount(6);
   // Windows PCs are labelled by name beside the Windows icon, never "WINDOWS".
   for (const [id, label] of [['minis', 'MINIS'], ['maxis', 'MAXIS']]) {
@@ -24,6 +24,8 @@ async function expectVisibleText(page) {
   }
   await expect(page.locator('#board')).not.toContainText('WINDOWS');
   await expect(page.locator('[data-m="dictator"] .os').first()).toHaveText('MAC');
+  await expect(page.locator('[data-m="staging"] .os').first()).toHaveText('STAGING');
+  await expect(page.locator('[data-m="staging"] .host').first()).toContainText('unlikeotherai.com');
   await expect(page.locator('[data-a="dictator-Kimi"] .vendor').first()).toContainText('Kimi');
   const cpuText = await page.locator('[data-m="minis"]').first().textContent();
   expect(cpuText).toMatch(/74/);

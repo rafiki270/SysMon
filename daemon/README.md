@@ -33,6 +33,11 @@ worktree can be cleaned up afterwards. If no Node path is given it probes
 - Linux: `~/.config/systemd/user/sysmon-daemon.service` (starts at login;
   `loginctl enable-linger` keeps it alive without a session).
 
+For a headless Linux server, run `sh daemon/install-system.sh` as root instead.
+It installs a system service under `/opt/sysmon-daemon` with a dynamic,
+unprivileged user and starts at boot. The WebSocket still binds only to
+`127.0.0.1:7737`; connect through an outbound SSH tunnel from the app.
+
 Default port 7737 (`SYSMON_DAEMON_PORT` override), loopback only.
 
 ## Check

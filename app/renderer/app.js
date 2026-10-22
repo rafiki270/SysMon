@@ -40,8 +40,8 @@
     return icon({ WINDOWS: 'windows', MAC: 'apple', LINUX: 'linux' }[m.os] || 'computer', m.os, 'computer-icon');
   }
   // Windows PCs are told apart by name; the icon already says Windows.
-  function machineLabel(m) { return m.os === 'WINDOWS' ? String(m.name || m.id).toUpperCase() : m.os; }
-  function hostLine(m) { return m.os === 'WINDOWS' ? m.address : `${m.name} · ${m.address}`; }
+  function machineLabel(m) { return m.os === 'WINDOWS' || m.id === 'staging' ? String(m.name || m.id).toUpperCase() : m.os; }
+  function hostLine(m) { return m.os === 'WINDOWS' || m.id === 'staging' ? m.address : `${m.name} · ${m.address}`; }
   function quotaHeadline(a, used) {
     const row = el('div', 'quota-headline');
     row.append(providerIcon(a), used);
