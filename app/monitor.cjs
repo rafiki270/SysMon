@@ -17,12 +17,13 @@ const hosts = [
   { id: 'dictator', name: 'dictator', os: 'MAC', address: '192.168.1.229', ssh: 'dictator@dictator.local', fallback: 'dictator@192.168.1.229', localPort: 17379 },
   { id: 'umac', name: 'umac', os: 'LINUX', address: '192.168.1.192', ssh: 'umac@umac.local', fallback: 'umac@192.168.1.192', localPort: 17380 },
   { id: 'maxis', name: 'Maxis', os: 'WINDOWS', address: '192.168.1.197', ssh: 'ondre@Maxis.local', fallback: 'ondre@192.168.1.197', localPort: 17381 },
+  { id: 'staging', name: 'Staging', os: 'LINUX', address: 'unlikeotherai.com', ssh: 'nessie-hetzner', localPort: 17382 },
 ];
-const ACCOUNT_HOSTS = ['minis', 'dictator']; // umac and Maxis share those subscriptions: machine metrics only
+const ACCOUNT_HOSTS = ['minis', 'dictator']; // remaining hosts show machine metrics only
 const STALE_AFTER_MS = 12000;
 const source = fs.readFileSync(path.join(__dirname, 'collector.cjs'), 'utf8');
 
-// The app can run on any of the four machines: decide which host is local by
+// The app can run on any of the four development machines: decide which host is local by
 // hostname first, then by platform, instead of assuming Windows.
 function detectLocalId({ platform = os.platform(), hostname = os.hostname() } = {}) {
   const hn = String(hostname).toLowerCase().replace(/\.(local|lan)$/, '');

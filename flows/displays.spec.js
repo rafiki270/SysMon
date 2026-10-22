@@ -59,7 +59,7 @@ test('secondary display is the default target, explicit selection and hotplug fo
   }
 });
 
-test('board fits six account cards and three machines within the actual viewport', async () => {
+test('board fits six account cards and five machines within the actual viewport', async () => {
   const { app, page, errors } = await launch(baseFixture());
   try {
     // Ask for the real secondary-monitor geometry; the OS may clamp smaller.
@@ -68,7 +68,7 @@ test('board fits six account cards and three machines within the actual viewport
     for (const layout of ['radial', 'bars', 'numerals']) {
       await page.click(`[data-testid="layout-${layout}"]`);
       await expect(page.locator('[data-a]')).toHaveCount(6);
-      await expect(page.locator('[data-m]')).toHaveCount(4);
+      await expect(page.locator('[data-m]')).toHaveCount(5);
       const offenders = await page.evaluate(() => {
         const bad = [];
         for (const e of document.querySelectorAll('[data-a], [data-m], .ci, .hdr, .ci-hdr')) {

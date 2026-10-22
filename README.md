@@ -1,6 +1,6 @@
 # SysMon
 
-Full-screen operations board (Electron) for four machines and six AI-account
+Full-screen operations board (Electron) for five machines and six AI-account
 quota cards. Dark green ops-board styling, three layouts (radial rows, bar
 columns, big numerals with real 60 s CPU and GPU sparklines), date/clock header,
 failing-CI panel, system tray.
@@ -26,7 +26,7 @@ failing-CI panel, system tray.
 
 Machine telemetry for each non-local host comes from its daemon when one is
 available, reached through SSH tunnels (local ports 17378 Minis / 17379
-dictator / 17380 umac / 17381 Maxis → remote 127.0.0.1:7737); otherwise the
+dictator / 17380 umac / 17381 Maxis / 17382 staging → remote 127.0.0.1:7737); otherwise the
 app falls back to running the collector over SSH stdin. Minis has no daemon,
 and neither does Maxis, so both always use the SSH collector (which needs
 Node on the remote PATH). No unauthenticated LAN port is ever opened; the
@@ -41,13 +41,16 @@ rejects WebSocket upgrades carrying a browser `Origin`.
 | dictator | macOS   | `dictator@dictator.local` / `dictator@192.168.1.229` | daemon (or local)  |
 | umac     | Linux   | `umac@umac.local` / `umac@192.168.1.192`             | daemon (or local)  |
 | Maxis    | Windows | `ondre@Maxis.local` / `ondre@192.168.1.197`          | collector over SSH |
+| Staging  | Linux   | `nessie-hetzner` (`root@178.105.82.46`)              | daemon over SSH    |
 
 The two Windows PCs are labelled by name (**MINIS**, **MAXIS**) beside the
-Windows icon; macOS and Linux keep their OS label.
+Windows icon; staging is labelled **STAGING** beside the Linux icon.
 
 Only machine metrics are shown for umac and Maxis: umac shares a
 subscription, Maxis has no Claude and its Codex is the same account as
-dictator's — no duplicate account cards.
+dictator's — no duplicate account cards. Staging has machine metrics only.
+The existing `nessie-hetzner` SSH alias on this PC supplies the staging key;
+the app makes an outbound tunnel to the server, with no public telemetry port.
 
 ## GPU
 

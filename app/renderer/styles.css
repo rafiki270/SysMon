@@ -136,6 +136,8 @@ button.link:hover { background: rgba(232,168,56,.12); }
 }
 .bcol:last-child { border-right: none; }
 .bcol .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bcol[data-m="staging"] .head { display: block; }
+.bcol[data-m="staging"] .host { display: block; text-align: left; }
 .bcol .os { font-size: clamp(15px, 1.4vw + 4px, 26px); font-weight: 700; letter-spacing: .04em; }
 .bcol .host { font-size: clamp(9px, .6vw + 4px, 12px); color: var(--dim); text-align: right; }
 .bcol .cpu-lbl { display: flex; justify-content: space-between; align-items: baseline; }

@@ -4,7 +4,7 @@
 //    own grid track (computed track geometry, not hard-coded pixels) and never
 //    touches the CPU block next to it.
 //  - 1b: the machine section is shortened so the six accounts get a real two
-//    row × three column grid, ordered by vendor pairs, under one row of four
+//    row × three column grid, ordered by vendor pairs, under one row of five
 //    machine columns, at every target resolution.
 const { test, expect } = require('@playwright/test');
 const { launch, baseFixture } = require('./helpers.cjs');
@@ -39,7 +39,7 @@ for (const res of RESOLUTIONS) {
       for (const layout of ['radial', 'numerals']) {
         await page.click(`[data-testid="layout-${layout}"]`);
         await expect(page.locator('#board')).toHaveClass(new RegExp(`lay-${layout}`));
-        for (const m of ['minis', 'dictator', 'umac', 'maxis']) {
+        for (const m of ['minis', 'dictator', 'umac', 'maxis', 'staging']) {
           const rowSel = `[data-m="${m}"]`;
           const stats = page.locator(`${rowSel} .mstat`);
           await expect(stats).toHaveCount(2);
@@ -103,10 +103,10 @@ for (const res of RESOLUTIONS) {
       // machine section shortened: accounts take a real share of the column
       expect(geo.accounts.height).toBeGreaterThanOrEqual(geo.left.height * 0.4);
       expect(geo.machines.height).toBeLessThanOrEqual(geo.left.height * 0.58);
-      // four equal machine columns in one row, spanning the same width as the accounts
-      expect(geo.cols.length).toBe(4);
+      // five equal machine columns in one row, spanning the same width as the accounts
+      expect(geo.cols.length).toBe(5);
       expect(new Set(geo.cols.map(c => Math.round(c.top))).size).toBe(1);
-      for (const c of geo.cols) expect(Math.abs(c.width - geo.machines.width / 4)).toBeLessThanOrEqual(2);
+      for (const c of geo.cols) expect(Math.abs(c.width - geo.machines.width / 5)).toBeLessThanOrEqual(2);
       expect(Math.abs(geo.cards[0].left - geo.cols[0].left)).toBeLessThanOrEqual(2);
       expect(Math.abs(geo.machines.width - geo.accounts.width)).toBeLessThanOrEqual(2);
       // no machine column clips its name, address or numbers
