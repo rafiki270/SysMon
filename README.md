@@ -35,7 +35,7 @@ rejects WebSocket upgrades carrying a browser `Origin`.
 
 ## Hosts
 
-| Host     | OS      | SSH (DNS first, IP fallback)                         | Metrics source     |
+| Host     | OS      | SSH target                                           | Metrics source     |
 |----------|---------|------------------------------------------------------|--------------------|
 | Minis    | Windows | `ondre@Minis.local` / `ondre@192.168.1.215`          | collector over SSH |
 | dictator | macOS   | `dictator@dictator.local` / `dictator@192.168.1.229` | daemon (or local)  |

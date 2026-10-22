@@ -35,4 +35,4 @@ chmod 0644 "$UNIT"
 systemctl daemon-reload
 systemctl enable sysmon-daemon.service
 systemctl restart sysmon-daemon.service
-curl -fsS --retry 5 --retry-delay 1 http://127.0.0.1:7737/health
+curl -fsS --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:7737/health
